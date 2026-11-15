@@ -473,7 +473,7 @@ function showNote(title,msg,btn){
 }
 async function route(){
   const tp=TOPICS.find(t=>t.slug===location.hash.slice(1));
-  if(!tp){CUR=null;document.body.classList.add('at-home');hq.value='';herr.innerHTML='';setTimeout(()=>hq.focus(),0);return}
+  if(!tp){window.renderStream&&renderStream(null);CUR=null;document.body.classList.add('at-home');hq.value='';herr.innerHTML='';setTimeout(()=>hq.focus(),0);return}
   CUR=tp; document.body.classList.remove('at-home');
   document.getElementById('evTitle').textContent=tp.title;
   document.getElementById('evTag').style.display=tp.sample?'':'none';
@@ -486,6 +486,8 @@ async function route(){
       const base=tp.path||(DATA+tp.slug+'/');
       const [cl,co]=await Promise.all([getJSON(base+'clusters.json'),getJSON(base+'connectivity.json')]);
       tp.model=buildModel(cl,co);
+      tp.stream=(cl.comments||[]).filter(c=>c&&c.created_utc&&c.subreddit).map(c=>[c.created_utc,c.narrative??c.cluster,!!c.is_noise]);
+      getJSON(base+'timeline.json').then(t=>{tp.timeline=t;if(CUR===tp){if(!S.node&&!S.dot)renderPanel();window.renderStream&&renderStream(tp)}}).catch(()=>{});
     }catch(e){
       console.warn(e);
       if(CUR!==tp) return;
@@ -497,6 +499,7 @@ async function route(){
     if(CUR!==tp) return;
   }
   setModel(tp.model);
+  window.renderStream&&renderStream(tp);
   missing.classList.remove('on');
   document.getElementById('question').textContent=AXIS.question;
   document.getElementById('modeSeg').style.visibility='';
@@ -632,6 +635,7 @@ function renderPanel(){
     el.innerHTML=`<div class="kick">This event</div><div class="big" style="margin-top:3px">${DOTS.length.toLocaleString()} comments</div>
       <div class="sub">across ${SUBS.length} subreddits</div>
       <div class="ph">Narratives</div>${narrList(NARRS.map(x=>({k:x.id,v:overall[x.id]})).sort((a,b)=>b.v-a.v),true)}
+      ${window.timelineBlock?timelineBlock(CUR&&CUR.timeline):''}
       <div class="how">Each cloud is a subreddit and each dot is a comment. Bigger dots got more upvotes and replies. Subreddits that tell similar stories sit closer together, and thicker lines mean more commenters in common.</div>`;
   }
 }

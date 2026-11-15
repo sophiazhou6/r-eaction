@@ -196,8 +196,14 @@ def score_stance(path: str, axis: dict, batch_size: int = 25, concurrency: int =
 
         async def run():
             return await asyncio.gather(*[_stance_batch(client, sem, b, axis) for b in batches])
-        res = pd.DataFrame([it for b in asyncio.run(run()) for it in b])
+        res = pd.DataFrame([it for b in asyncio.run(run()) for it in b if isinstance(it, dict)])
+        # keep only the fields we asked for (the LLM sometimes echoes subreddit/comment back)
+        for col in ["id", "stance", "emotion", "claim", "endorse_only"]:
+            if col not in res:
+                res[col] = None
+        res = res[["id", "stance", "emotion", "claim", "endorse_only"]].dropna(subset=["id"])
         res["id"] = res["id"].astype(str).map(_strip)
+        res = res.drop_duplicates("id")
 
     renamed, orig_cols = df.attrs.get("renamed", {}), df.attrs.get("orig_cols", [])
     drop = [c for c in ["stance", "emotion", "claim", "endorse_only"] if c in df]

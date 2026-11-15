@@ -100,11 +100,12 @@ print(json.dumps(st.score_stance(st.DEFAULT_COMMENTS, {"question": a.question, "
 out = st.cluster_narratives(k=a.k)
 print(f"\nembeddings: {out['embed_backend']} | method: {out['method']} | "
       f"min_cluster_size: {out.get('min_cluster_size')} | clustered: {out['n_clustered']}")
+print("axis check:", json.dumps(out["axis_check"]))
 for s_ in out["sweep"]:
     print("  sweep", s_)
 for c in out["clusters"]:
     print(f"\n### cluster {c['cluster']}  size={c['size']}  weighted={c['weighted_size']}  "
-          f"subs={c['subreddit_counts']}  localized={c['localized']}")
+          f"on_axis={c['on_axis_share']}  stance={c['mean_stance']}  subs={c['subreddit_counts']}  localized={c['localized']}")
     print("  keywords:", ", ".join(c["keywords"][:8]))
     for t in c["top_comments"][:4]:
         print(f"  [{t['score']:>5}] {t['text']}")

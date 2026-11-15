@@ -31,6 +31,8 @@ import pandas as pd
 BOTS = {"AutoModerator", "[deleted]", "VisualMod", "RemindMeBot", None, ""}
 MIN_WORDS = 5
 THREAD_CAP = 0.20          # max share of a (community, narrative) cell from one thread
+AXIS_MIN_ON_AXIS = 0.40    # a cluster "has the axis" if > 40% of its comments take a stance on it
+AXIS_MIN_CLUSTERS = 0.40   # the axis is good if > 40% of clusters have it
 CHAT_MODEL = os.environ.get("CLAIM_MODEL", "gpt-4.1-mini")   # same family as Kent's JUDGE_MODEL
 EMBED_BACKEND = os.environ.get("EMBED_BACKEND", "auto")   # auto | supabase | openai | local | tfidf
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "text-embedding-3-small")
@@ -381,6 +383,7 @@ def cluster_narratives(path: str = DEFAULT_COMMENTS, k: int | None = None, seed:
             "subreddit_counts": g["subreddit"].value_counts().head(8).to_dict(),
             "keywords": kw[int(c)],
             "mean_stance": None if g["stance"].isna().all() else round(float(g["stance"].mean()), 2),
+            "on_axis_share": round(float(g["stance"].notna().mean()), 2),
             "n_threads": int(g["thread"].nunique()),
             "localized": bool(work["thread"].nunique() >= 4 and (top_thread > 0.5 or g["thread"].nunique() < 3)),
             "top_comments": [{"id": r.id, "subreddit": r.subreddit, "score": int(r.score), "text": _short(r.body)}
@@ -389,16 +392,34 @@ def cluster_narratives(path: str = DEFAULT_COMMENTS, k: int | None = None, seed:
                                for r in contested.itertuples()],
         })
 
+    axis_check = check_axis(summaries)
     cols = ["id", "post_id", "parent_id", "subreddit", "author", "body", "claim", "score", "weight",
             "n_replies", "controversy", "stance", "emotion", "cluster", "is_noise", "x", "y", "created_utc"]
     out = {"params": {**chosen, "embed_backend": backend, "n_clustered": n,
                       "n_endorse_folded": int(df["endorse_only"].sum())},
-           "sweep": sweep,
+           "sweep": sweep, "axis_check": axis_check,
            "clusters": [{k2: v for k2, v in s.items() if k2 not in ("top_comments", "most_contested")} for s in summaries],
            "comments": json.loads(work[[c for c in cols if c in work]].to_json(orient="records"))}
     cpath.write_text(json.dumps(out))
     np.save(cpath.with_suffix(".final8.npy"), Z)
-    return {"path": str(cpath), **out["params"], "sweep": sweep, "clusters": summaries}
+    return {"path": str(cpath), **out["params"], "sweep": sweep, "axis_check": axis_check, "clusters": summaries}
+
+
+def check_axis(cluster_summaries: list[dict], min_on_axis: float = AXIS_MIN_ON_AXIS,
+               min_clusters: float = AXIS_MIN_CLUSTERS) -> dict:
+    """Is the stance axis about what people actually argue? OK when more than `min_clusters` of the
+    clusters have more than `min_on_axis` of their comments taking a stance (stance not null)."""
+    shares = [c.get("on_axis_share", 0) or 0 for c in cluster_summaries]
+    if not shares or max(shares) == 0:
+        return {"ok": None, "reason": "no stance scores yet (fast mode or score_stance not run)"}
+    with_axis = [c["cluster"] for c, sh in zip(cluster_summaries, shares) if sh > min_on_axis]
+    frac = len(with_axis) / len(shares)
+    ok = frac > min_clusters
+    return {"ok": ok, "clusters_with_axis": with_axis, "fraction": round(frac, 2),
+            "rule": f"> {int(min_clusters * 100)}% of clusters need > {int(min_on_axis * 100)}% of comments on the axis",
+            "advice": None if ok else ("The axis misses most narratives. Look at the off-axis clusters' top comments, "
+                                       "write a new axis they take sides on, call score_stance_tool again, then "
+                                       "cluster_narratives_tool again. Do this at most once.")}
 
 
 # ================================================================ extras: labels + connectivity
@@ -646,6 +667,8 @@ def subagent_specs():
              "   not generic positive/negative. Call score_stance_tool once.\n"
              "3. Call cluster_narratives_tool with k empty. Only rerun with k if the result is clearly unusable\n"
              "   (fewer than 3 or more than 15 clusters). At most one rerun.\n"
+             "   If axis_check.ok is false (40% rule), follow its advice: write ONE new axis from the off-axis\n"
+             "   clusters' comments, call score_stance_tool and cluster_narratives_tool again. Only once.\n"
              "4. Report briefly: axis, n_on_axis, number of clusters, which are localized. Do not label clusters."),
          "tools": [t["community_summary_tool"], t["preview_comments_tool"], t["score_stance_tool"], t["cluster_narratives_tool"]]},
         {"name": "narrative-analyst",

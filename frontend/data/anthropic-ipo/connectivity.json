@@ -1,0 +1,298 @@
+{
+ "event": "Anthropic IPO",
+ "stance_axis": {
+  "0": "bad for retail",
+  "1": "good for retail",
+  "question": "Is the IPO good for ordinary investors?"
+ },
+ "communities": [
+  {
+   "subreddit": "wallstreetbets",
+   "n_comments": 520,
+   "group": "Finance",
+   "mean_stance": 0.581
+  },
+  {
+   "subreddit": "stocks",
+   "n_comments": 410,
+   "group": "Finance",
+   "mean_stance": 0.37
+  },
+  {
+   "subreddit": "investing",
+   "n_comments": 300,
+   "group": "Finance",
+   "mean_stance": 0.315
+  },
+  {
+   "subreddit": "Economics",
+   "n_comments": 180,
+   "group": "Finance",
+   "mean_stance": 0.206
+  },
+  {
+   "subreddit": "singularity",
+   "n_comments": 380,
+   "group": "AI",
+   "mean_stance": 0.642
+  },
+  {
+   "subreddit": "ClaudeAI",
+   "n_comments": 260,
+   "group": "AI",
+   "mean_stance": 0.651
+  },
+  {
+   "subreddit": "OpenAI",
+   "n_comments": 220,
+   "group": "AI",
+   "mean_stance": 0.326
+  },
+  {
+   "subreddit": "artificial",
+   "n_comments": 200,
+   "group": "AI",
+   "mean_stance": 0.537
+  },
+  {
+   "subreddit": "technology",
+   "n_comments": 340,
+   "group": "Tech",
+   "mean_stance": 0.244
+  },
+  {
+   "subreddit": "MachineLearning",
+   "n_comments": 160,
+   "group": "Tech",
+   "mean_stance": 0.387
+  }
+ ],
+ "shared_commenters": [
+  {
+   "a": "stocks",
+   "b": "investing",
+   "jaccard": 0.26,
+   "shared": 105
+  },
+  {
+   "a": "stocks",
+   "b": "wallstreetbets",
+   "jaccard": 0.22,
+   "shared": 121
+  },
+  {
+   "a": "investing",
+   "b": "Economics",
+   "jaccard": 0.14,
+   "shared": 42
+  },
+  {
+   "a": "wallstreetbets",
+   "b": "investing",
+   "jaccard": 0.12,
+   "shared": 63
+  },
+  {
+   "a": "stocks",
+   "b": "Economics",
+   "jaccard": 0.08,
+   "shared": 31
+  },
+  {
+   "a": "singularity",
+   "b": "artificial",
+   "jaccard": 0.2,
+   "shared": 70
+  },
+  {
+   "a": "ClaudeAI",
+   "b": "OpenAI",
+   "jaccard": 0.17,
+   "shared": 50
+  },
+  {
+   "a": "singularity",
+   "b": "OpenAI",
+   "jaccard": 0.15,
+   "shared": 56
+  },
+  {
+   "a": "ClaudeAI",
+   "b": "singularity",
+   "jaccard": 0.12,
+   "shared": 49
+  },
+  {
+   "a": "artificial",
+   "b": "OpenAI",
+   "jaccard": 0.1,
+   "shared": 27
+  },
+  {
+   "a": "ClaudeAI",
+   "b": "artificial",
+   "jaccard": 0.09,
+   "shared": 27
+  },
+  {
+   "a": "MachineLearning",
+   "b": "artificial",
+   "jaccard": 0.09,
+   "shared": 21
+  },
+  {
+   "a": "technology",
+   "b": "MachineLearning",
+   "jaccard": 0.07,
+   "shared": 24
+  },
+  {
+   "a": "technology",
+   "b": "artificial",
+   "jaccard": 0.06,
+   "shared": 22
+  },
+  {
+   "a": "technology",
+   "b": "OpenAI",
+   "jaccard": 0.05,
+   "shared": 19
+  },
+  {
+   "a": "wallstreetbets",
+   "b": "singularity",
+   "jaccard": 0.06,
+   "shared": 37
+  },
+  {
+   "a": "stocks",
+   "b": "technology",
+   "jaccard": 0.04,
+   "shared": 21
+  },
+  {
+   "a": "investing",
+   "b": "ClaudeAI",
+   "jaccard": 0.03,
+   "shared": 12
+  },
+  {
+   "a": "Economics",
+   "b": "technology",
+   "jaccard": 0.03,
+   "shared": 11
+  }
+ ],
+ "js_distance": {
+  "wallstreetbets": {
+   "stocks": 0.249,
+   "investing": 0.36,
+   "Economics": 0.564,
+   "singularity": 0.457,
+   "ClaudeAI": 0.484,
+   "OpenAI": 0.524,
+   "artificial": 0.434,
+   "technology": 0.616,
+   "MachineLearning": 0.607
+  },
+  "stocks": {
+   "wallstreetbets": 0.249,
+   "investing": 0.124,
+   "Economics": 0.354,
+   "singularity": 0.496,
+   "ClaudeAI": 0.528,
+   "OpenAI": 0.442,
+   "artificial": 0.449,
+   "technology": 0.5,
+   "MachineLearning": 0.528
+  },
+  "investing": {
+   "wallstreetbets": 0.36,
+   "stocks": 0.124,
+   "Economics": 0.261,
+   "singularity": 0.539,
+   "ClaudeAI": 0.566,
+   "OpenAI": 0.431,
+   "artificial": 0.487,
+   "technology": 0.458,
+   "MachineLearning": 0.51
+  },
+  "Economics": {
+   "wallstreetbets": 0.564,
+   "stocks": 0.354,
+   "investing": 0.261,
+   "singularity": 0.568,
+   "ClaudeAI": 0.6,
+   "OpenAI": 0.39,
+   "artificial": 0.507,
+   "technology": 0.399,
+   "MachineLearning": 0.42
+  },
+  "singularity": {
+   "wallstreetbets": 0.457,
+   "stocks": 0.496,
+   "investing": 0.539,
+   "Economics": 0.568,
+   "ClaudeAI": 0.161,
+   "OpenAI": 0.354,
+   "artificial": 0.109,
+   "technology": 0.578,
+   "MachineLearning": 0.394
+  },
+  "ClaudeAI": {
+   "wallstreetbets": 0.484,
+   "stocks": 0.528,
+   "investing": 0.566,
+   "Economics": 0.6,
+   "singularity": 0.161,
+   "OpenAI": 0.317,
+   "artificial": 0.201,
+   "technology": 0.536,
+   "MachineLearning": 0.374
+  },
+  "OpenAI": {
+   "wallstreetbets": 0.524,
+   "stocks": 0.442,
+   "investing": 0.431,
+   "Economics": 0.39,
+   "singularity": 0.354,
+   "ClaudeAI": 0.317,
+   "artificial": 0.283,
+   "technology": 0.256,
+   "MachineLearning": 0.134
+  },
+  "artificial": {
+   "wallstreetbets": 0.434,
+   "stocks": 0.449,
+   "investing": 0.487,
+   "Economics": 0.507,
+   "singularity": 0.109,
+   "ClaudeAI": 0.201,
+   "OpenAI": 0.283,
+   "technology": 0.499,
+   "MachineLearning": 0.32
+  },
+  "technology": {
+   "wallstreetbets": 0.616,
+   "stocks": 0.5,
+   "investing": 0.458,
+   "Economics": 0.399,
+   "singularity": 0.578,
+   "ClaudeAI": 0.536,
+   "OpenAI": 0.256,
+   "artificial": 0.499,
+   "MachineLearning": 0.267
+  },
+  "MachineLearning": {
+   "wallstreetbets": 0.607,
+   "stocks": 0.528,
+   "investing": 0.51,
+   "Economics": 0.42,
+   "singularity": 0.394,
+   "ClaudeAI": 0.374,
+   "OpenAI": 0.134,
+   "artificial": 0.32,
+   "technology": 0.267
+  }
+ }
+}

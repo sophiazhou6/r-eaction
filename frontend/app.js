@@ -7,7 +7,7 @@ const DATA=(new URLSearchParams(location.search).get('data')||'data/').replace(/
 // Narrative colors, in order (largest narrative gets the first color). Narratives past these are shown as "other".
 const PALETTE=['#2a78d6','#eb6834','#1baf7a','#e8a400','#e87ba4','#7b5cf0','#e34948','#4fb3d9'];
 // Pairs of subreddits share a line only if their commenter overlap is at least this fraction of the largest overlap.
-const LINK_MIN_FRACTION=.15;
+const LINK_MIN_SIM=.5;    // draw a line between every pair of subreddits at least this similar (0–1)
 
 /* ============================================================
    Helpers
@@ -116,19 +116,21 @@ function buildModel(cl,co){
   SUBS.forEach(a=>SUBS.forEach(b=>{if(a===b)return;let d=fromJD(a.name,b.name);if(typeof d!=='number')d=jsd(a.p,b.p);DIST[a.name+'|'+b.name]=d;DMAX=Math.max(DMAX,d)}));
   if(!DMAX)DMAX=1;
 
-  // lines = shared commenters
-  JAC={};SHAREDN={};
-  (co.shared_commenters||[]).forEach(e=>{const a=e.a??e.source,b=e.b??e.target,j=e.jaccard??e.weight??0;
-    if(!byName.has(a)||!byName.has(b))return;JAC[a+'|'+b]=JAC[b+'|'+a]=j;if(e.shared!=null)SHAREDN[a+'|'+b]=SHAREDN[b+'|'+a]=e.shared});
-  MAXJ=Math.max(0,...Object.values(JAC))||1;
-  LINKS=[];
-  for(let i=0;i<SUBS.length;i++)for(let j=i+1;j<SUBS.length;j++){const v=jac(SUBS[i],SUBS[j]);if(v>0&&v>=MAXJ*LINK_MIN_FRACTION)LINKS.push({a:SUBS[i],b:SUBS[j],j:v,v:.26*v/MAXJ})}
+  // lines = narrative similarity (1 - distance between story mixes), for every pair at or above LINK_MIN_SIM
+  JAC={};SHAREDN={};LINKS=[];
+  for(let i=0;i<SUBS.length;i++)for(let j=i+1;j<SUBS.length;j++){const v=sim(SUBS[i],SUBS[j]);if(v>=LINK_MIN_SIM)LINKS.push({a:SUBS[i],b:SUBS[j],j:v})}
+  const jmin=Math.min(...LINKS.map(L=>L.j)),jmax=Math.max(...LINKS.map(L=>L.j));MAXJ=jmax||1;
+  LINKS.forEach(L=>L.v=.05+.21*(jmax>jmin?(L.j-jmin)/(jmax-jmin):1));
   LINKS.sort((a,b)=>a.j-b.j);
 
   layout();
   return {AXIS,NARRS,SUBS,DOTS,overall,DIST,DMAX,JAC,SHAREDN,LINKS,MAXJ};
 }
-function setModel(m){({AXIS,NARRS,SUBS,DOTS,overall,DIST,DMAX,JAC,SHAREDN,LINKS,MAXJ}=m);recolor()}
+function setModel(m){({AXIS,NARRS,SUBS,DOTS,overall,DIST,DMAX,JAC,SHAREDN,LINKS,MAXJ}=m);recolor();
+  [...SUBS].sort((a,b)=>b.n-a.n).forEach((n,i)=>n.fo=i);FADE=performance.now()}
+// fade-in when a topic opens: subreddits appear one after another, biggest first; lines follow their two ends
+let FADE=-1e9;const FADE_STEP=90,FADE_DUR=550;
+const fa=n=>{const t=Math.min(1,Math.max(0,(performance.now()-FADE-(n.fo||0)*FADE_STEP)/FADE_DUR));return 1-Math.pow(1-t,3)};
 
 /* ============================================================
    Layout: subreddits telling similar stories sit close; lines stay clear of other blobs
@@ -292,7 +294,8 @@ function draw(){
       const pa=toS(L.a.x,L.a.y),pb=toS(L.b.x,L.b.y),dx=pb.x-pa.x,dy=pb.y-pa.y,d=Math.hypot(dx,dy);
       const ra=L.a.R*s*1.08,rb=L.b.R*s*1.08; if(d<=ra+rb+2) return;
       const ux=dx/d,uy=dy/d,hot=hov&&(L.a===hov||L.b===hov);
-      ctx.strokeStyle=ink((hot?.6:hov?.08:.16+L.v*1.3)*la);
+      const lf=Math.min(fa(L.a),fa(L.b)); if(lf<=0) return;
+      ctx.strokeStyle=ink((hot?.6:hov?.08:.16+L.v*1.3)*la*lf);
       ctx.lineWidth=1+L.v*16;
       ctx.beginPath();ctx.moveTo(pa.x+ux*ra,pa.y+uy*ra);ctx.lineTo(pb.x-ux*rb,pb.y-uy*rb);ctx.stroke();
     });
@@ -309,8 +312,9 @@ function draw(){
     if(S.q&&!c.m) a=.06;
     if(F){ if(n!==F) a*=1-.9*zoom }
     else if(hov&&n!==hov) a*=.4;
-    ctx.globalAlpha=a; ctx.fillStyle=S.mode==='stance'?c.colS:c.colN;
-    ctx.beginPath();ctx.arc(x,y,Math.max(.7,c.r*s),0,6.2832);ctx.fill();
+    const f=fa(n); if(f<=0) continue;
+    ctx.globalAlpha=a*f; ctx.fillStyle=S.mode==='stance'?c.colS:c.colN;
+    ctx.beginPath();ctx.arc(x,y,Math.max(.7,c.r*s*(.55+.45*f)),0,6.2832);ctx.fill();
   }
   ctx.globalAlpha=1;
 
@@ -322,22 +326,34 @@ function draw(){
     ctx.strokeStyle=ink(i?.95:.6);ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(p.x,p.y,c.r*s+3.5,0,7);ctx.stroke();
   });
 
-  // "% shared" labels for the hovered blob's lines
+  // similarity-score labels for the hovered blob's lines
   if(hov){
     ctx.font=FONT(12.5);ctx.textAlign='center';ctx.textBaseline='middle';
     const pills=[];
     LINKS.filter(L=>L.a===hov||L.b===hov).sort((a,b)=>b.j-a.j).forEach(L=>{
       const pa=toS(L.a.x,L.a.y),pb=toS(L.b.x,L.b.y),d=Math.hypot(pb.x-pa.x,pb.y-pa.y);
-      const ux=(pb.x-pa.x)/d,uy=(pb.y-pa.y)/d,ra=L.a.R*s,rb=L.b.R*s; if(d<ra+rb+40) return;
+      if(d<1) return;
+      const ux=(pb.x-pa.x)/d,uy=(pb.y-pa.y)/d,ra=L.a.R*s,rb=L.b.R*s;
       const x0=pa.x+ux*ra,y0=pa.y+uy*ra,x1=pb.x-ux*rb,y1=pb.y-uy*rb;
-      // put the label somewhere along the line that isn't on top of another blob
-      const t=pct(L.j)+' shared',w=ctx.measureText(t).width+14;
-      const clash=(cx,cy)=>{const rc={x:cx-w/2,y:cy-10,w,h:20};
-        if(SUBS.some(n=>{const q=toS(n.x,n.y),nx=Math.max(rc.x,Math.min(q.x,rc.x+w)),ny=Math.max(rc.y,Math.min(q.y,rc.y+20));return Math.hypot(q.x-nx,q.y-ny)<n.R*s*1.05}))return true;
-        return [...[...LP.values()].map(l=>l.rc),...pills].some(o=>rc.x<o.x+o.w&&rc.x+w>o.x&&rc.y<o.y+o.h&&rc.y+20>o.y)};
+      const t=L.j.toFixed(2)+' similar',w=ctx.measureText(t).width+14;
+      // every hovered line gets its score. Try, in order: a spot on the line clear of all blobs and labels;
+      // then one that may overlap the line's own two blobs (short lines); then nudged sideways off the line;
+      // and finally the midpoint, as long as it doesn't cover another score.
+      const hitPill=rc=>pills.some(o=>rc.x<o.x+o.w&&rc.x+w>o.x&&rc.y<o.y+o.h&&rc.y+20>o.y);
+      const hitLabel=rc=>[...LP.values()].some(l=>{const o=l.rc;return rc.x<o.x+o.w&&rc.x+w>o.x&&rc.y<o.y+o.h&&rc.y+20>o.y});
+      const hitBlob=(rc,skipEnds)=>SUBS.some(n=>{if(skipEnds&&(n===L.a||n===L.b))return false;
+        const q=toS(n.x,n.y),nx=Math.max(rc.x,Math.min(q.x,rc.x+w)),ny=Math.max(rc.y,Math.min(q.y,rc.y+20));return Math.hypot(q.x-nx,q.y-ny)<n.R*s*1.05});
+      const box=(cx,cy)=>({x:cx-w/2,y:cy-10,w,h:20});
+      const along=[.5,.4,.6,.3,.7,.22,.78,.15,.85].map(f=>[x0+(x1-x0)*f,y0+(y1-y0)*f]);
+      const mxm=(x0+x1)/2,mym=(y0+y1)/2,px=-uy,py=ux;
+      const side=[0,14,-14,28,-28,42,-42,58,-58].map(o=>[mxm+px*o,mym+py*o]);
+      const tries=[[along,c=>!hitBlob(c,false)&&!hitLabel(c)&&!hitPill(c)],
+                   [along,c=>!hitBlob(c,true)&&!hitLabel(c)&&!hitPill(c)],
+                   [side,c=>!hitBlob(c,true)&&!hitPill(c)],
+                   [side,c=>!hitPill(c)]];
       let mx=null,my=null;
-      for(const f of [.5,.4,.6,.3,.7,.22,.78,.15,.85]){const cx=x0+(x1-x0)*f,cy=y0+(y1-y0)*f;if(!clash(cx,cy)){mx=cx;my=cy;break}}
-      if(mx==null) return;   // no clear spot: skip the pill (the line itself still shows)
+      for(const [pts,ok] of tries){const p=pts.find(([cx,cy])=>ok(box(cx,cy)));if(p){[mx,my]=p;break}}
+      if(mx==null){mx=mxm;my=mym}
       pills.push({x:mx-w/2,y:my-10,w,h:20});
       ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--bg');
       ctx.beginPath();ctx.roundRect(mx-w/2,my-10,w,20,10);ctx.fill();
@@ -350,7 +366,7 @@ function draw(){
     ctx.textBaseline='alphabetic';
     SUBS.forEach(n=>{
       const L=LP.get(n); ctx.textAlign=L.al;
-      ctx.globalAlpha=ov*(hov?(n===hov?1:.35):1);
+      ctx.globalAlpha=ov*(hov?(n===hov?1:.35):1)*fa(n);
       ctx.font=FONT(11,n===hov?600:400);ctx.fillStyle=ink(n===hov?.9:.45);
       ctx.fillText('r/'+n.name,L.x,L.y);
       let t=null; if(S.hl!=null){t=pct(share(n,S.hl));ctx.fillStyle=SM()?ink(.75):NARRS[S.hl].color}
@@ -486,7 +502,11 @@ async function route(){
       const base=tp.path||(DATA+tp.slug+'/');
       const [cl,co]=await Promise.all([getJSON(base+'clusters.json'),getJSON(base+'connectivity.json')]);
       tp.model=buildModel(cl,co);
-      tp.stream=(cl.comments||[]).filter(c=>c&&c.created_utc&&c.subreddit).map(c=>[c.created_utc,c.narrative??c.cluster,!!c.is_noise]);
+      const ts=v=>{if(v==null||v==='')return NaN;if(typeof v==='string'&&/^\d+(\.\d+)?$/.test(v.trim()))v=+v;
+        if(typeof v==='number')return v>1e12?v/1000:v;
+        const iso=String(v).trim().replace(' ','T').replace(/([+-]\d\d)$/,'$1:00');return Date.parse(iso)/1000};
+      tp.stream=(cl.comments||[]).filter(c=>c&&c.subreddit&&c.created_utc!=null).map(c=>[ts(c.created_utc),c.narrative??c.cluster,!!c.is_noise]).filter(r=>isFinite(r[0]));
+      if(!tp.stream.length) console.warn('Timeline hidden: no comment in clusters.json has a usable created_utc');
       getJSON(base+'timeline.json').then(t=>{tp.timeline=t;if(CUR===tp){if(!S.node&&!S.dot)renderPanel();window.renderStream&&renderStream(tp)}}).catch(()=>{});
     }catch(e){
       console.warn(e);
@@ -513,7 +533,7 @@ document.getElementById('homeLink').onclick=()=>go(null);
 const hq=document.getElementById('hq'),herr=document.getElementById('herr');
 function renderHome(){
   document.getElementById('htry').innerHTML=TOPICS.length?'<span>Try</span>'+TOPICS.map((t,i)=>`<button type="button" data-t="${i}">${esc(t.title)}</button>`).join(''):'';
-  document.getElementById('hfoot').textContent=TOPICS.length?TOPICS.length+' events analyzed':'No events found: check data/events.json (and that the page is served over HTTP).';
+  document.getElementById('hfoot').textContent=TOPICS.length?'':'No events found: check data/events.json (and that the page is served over HTTP).';
 }
 document.getElementById('htry').addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(b)go(TOPICS[+b.dataset.t])});
 document.getElementById('hform').addEventListener('submit',e=>{
@@ -626,17 +646,16 @@ function renderPanel(){
            <div class="ph">Stance by narrative</div>${narrList(NARRS.map(x=>({k:x.id,v:share(n,x.id)})).filter(o=>o.v>=.03).sort((a,b)=>b.v-a.v),false,n.dots)}`
         : `<div class="ph">Narratives</div>${narrList(NARRS.map(x=>({k:x.id,v:share(n,x.id)})).filter(o=>o.v>=.03).sort((a,b)=>b.v-a.v),true)}`}
       <div class="ph">Tells the most similar story to</div>
-      ${nb.map(o=>`<div class="brow" data-node="${o.x.name}"><span class="t">r/${esc(o.x.name)}</span><span class="track"><i style="width:${o.j*100}%"></i></span><span class="n">${pct(o.j)}</span></div>`).join('')}
-      <div class="ph">Shares the most commenters with</div>
-      ${SUBS.filter(x=>x!==n&&jac(n,x)>0).sort((a,b)=>jac(n,b)-jac(n,a)).slice(0,3).map(x=>`<div class="brow" data-node="${x.name}" title="~${sharedPeople(n,x)} people in both"><span class="t">r/${esc(x.name)}</span><span class="track"><i style="width:${jac(n,x)/MAXJ*100}%"></i></span><span class="n">${pct(jac(n,x))}</span></div>`).join('')||'<div class="sub">Almost nobody in common.</div>'}
+      ${nb.map(o=>`<div class="brow" data-node="${o.x.name}"><span class="t">r/${esc(o.x.name)}</span><span class="track"><i style="width:${o.j*100}%"></i></span><span class="n">${o.j.toFixed(2)}</span></div>`).join('')}
       <div class="ph">Top comments${S.hl!=null?' in this narrative':''}${S.q?' matching “'+esc(S.q)+'”':''}</div>
       ${top.map(c=>`<div class="card" data-dot="${c.id}">${esc(c.body)}<div class="m">▲ ${fmt(c.score)} · ${c.replies} replies · ${esc(c.author)}</div></div>`).join('')||'<div class="sub">No matching comments.</div>'}`;
   }else{
     el.innerHTML=`<div class="kick">This event</div><div class="big" style="margin-top:3px">${DOTS.length.toLocaleString()} comments</div>
       <div class="sub">across ${SUBS.length} subreddits</div>
+      ${SM()&&DOTS.some(d=>d.stance!=null)?`<div class="ph">${S.hl!=null?'Where “'+esc(NARRS[S.hl].short)+'” lands':'Where it lands overall'}</div>${stanceBlock(DOTS.filter(vis))}`:''}
       <div class="ph">Narratives</div>${narrList(NARRS.map(x=>({k:x.id,v:overall[x.id]})).sort((a,b)=>b.v-a.v),true)}
       ${window.timelineBlock?timelineBlock(CUR&&CUR.timeline):''}
-      <div class="how">Each cloud is a subreddit and each dot is a comment. Bigger dots got more upvotes and replies. Subreddits that tell similar stories sit closer together, and thicker lines mean more commenters in common.</div>`;
+      <div class="how">Each cloud is a subreddit and each dot is a comment. Bigger dots got more upvotes and replies. Subreddits that tell similar stories sit closer together. Lines connect subreddits with a narrative similarity of at least 0.5 (0–1); hover a subreddit to see the scores, and thicker lines mean more similar.</div>`;
   }
 }
 function renderTop(){

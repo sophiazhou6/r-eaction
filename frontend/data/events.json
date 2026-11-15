@@ -23,19 +23,6 @@
     "path": "https://dexgswmmjewpcwkzocax.supabase.co/storage/v1/object/public/narrative-runs/anthropic-ipo/"
   },
   {
-    "slug": "faa-closure",
-    "title": "FAA closure",
-    "query": "FAA closure",
-    "keywords": [
-      "faa",
-      "federal aviation",
-      "air traffic",
-      "airspace"
-    ],
-    "path": "https://dexgswmmjewpcwkzocax.supabase.co/storage/v1/object/public/narrative-runs/faa-closure/",
-    "sample": false
-  },
-  {
     "slug": "fifa-election",
     "title": "FIFA election",
     "query": "new FIFA election",

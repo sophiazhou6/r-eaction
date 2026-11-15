@@ -114,3 +114,15 @@ Find themes, do not just list numbers.
 Use only what timeline_tool returned. Never read other data files.
 Return ONLY the arc sentence.
 """
+
+
+LIVE_SEARCH = """LIVE MODE: a user is waiting on the website, speed beats coverage.
+- plan_queries once. Then call search_many_live EXACTLY ONCE (it replaces search_many) with the 2 best queries x the 4 most relevant subreddits.
+- score_recall(k=10) once. NO extra search rounds, whatever recall says.
+- Then fetch_threads immediately with the limits below. Do not call search_reddit.
+
+"""
+
+LIVE_ORCHESTRATOR = """
+
+LIVE MODE: a user is waiting. Never loop back to search, run each step once, keep messages short."""

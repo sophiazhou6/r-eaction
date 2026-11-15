@@ -539,7 +539,7 @@ document.getElementById('htry').addEventListener('click',e=>{const b=e.target.cl
 document.getElementById('hform').addEventListener('submit',e=>{
   e.preventDefault(); const q=hq.value.trim(); if(!q) return;
   const tp=matchTopic(q);
-  if(tp) go(tp); else herr.innerHTML=`<b>Oops!</b> We don’t have data on “${esc(q)}” yet. Try one of these:`;
+  if(tp) go(tp); else if(window.liveRun) liveRun(q); else herr.innerHTML=`<b>Oops!</b> We don’t have data on “${esc(q)}” yet. Try one of these:`;
 });
 hq.addEventListener('input',()=>{herr.innerHTML=''});
 
@@ -557,6 +557,7 @@ function buildDD(){
   }else{
     const t=matchTopic(raw);
     if(t){ddItems.push(()=>go(t));h=`<div class="h">Event</div><div class="it" data-i="0">${esc(t.title)}<span class="n">${t===CUR?'current':''}</span></div>`}
+    else if(window.liveRun){ddItems.push(()=>{go(null);setTimeout(()=>liveRun(raw),50)});h=`<div class="h">New event</div><div class="it" data-i="0">Run the agents on “${esc(raw)}”<span class="n">live</span></div>`}
     else h=`<div class="it na" style="cursor:default">Oops! No data on “${esc(raw)}” yet.</div>`;
   }
   dd.innerHTML=h; ddAct=0; markAct(); dd.classList.add('open');

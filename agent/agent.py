@@ -22,6 +22,7 @@ MODEL = os.getenv("MODEL", "anthropic:claude-haiku-5-5")
 # How much to download. run.py sets these: live runs stay fast, --demo runs go deep.
 MAX_POSTS = os.getenv("MAX_POSTS", "10")
 MAX_COMMENTS = os.getenv("MAX_COMMENTS", "1000")
+LIVE = os.getenv("LIVE_MODE") == "1"  # set by agent/server.py: fast path for website searches
 
 
 @tool
@@ -45,6 +46,14 @@ def timeline_tool(path: str = "/data/comments.jsonl") -> str:
     """Evidence for the story over time: origin, windows (narrative mix, stance split,
     communities, quotes, threads that started then), turning points, spread order."""
     return glue.timeline_summary(path)
+
+
+@tool
+def search_many_live(queries: list[str], subreddits: list[str], limit: int = 50,
+                     time_filter: str = "month") -> str:
+    """LIVE MODE search: runs the 2 best queries x 4 best subreddits in parallel (extra ones are dropped).
+    Returns a count per search plus the total number of unique posts found."""
+    return kent.search_many(queries[:2], subreddits[:4], limit=min(limit, 50), time_filter=time_filter)
 
 
 def timeline_subagent():
@@ -86,6 +95,10 @@ def build_subagents():
         "tools": [kent.plan_queries, kent.set_event_description, kent.search_many,
                   kent.search_reddit, kent.score_recall, kent.fetch_threads],
     }
+    if LIVE:
+        search["system_prompt"] = prompts.LIVE_SEARCH + search["system_prompt"]
+        search["tools"] = [kent.plan_queries, kent.set_event_description, search_many_live,
+                           kent.score_recall, kent.fetch_threads]
     return [search, clustering, narrative, timeline_subagent(), reporter_subagent()]
 
 
@@ -94,7 +107,7 @@ def build_agent():
     return create_deep_agent(
         model=MODEL,
         tools=[],  # the orchestrator only plans and delegates
-        system_prompt=prompts.ORCHESTRATOR,
+        system_prompt=prompts.ORCHESTRATOR + (prompts.LIVE_ORCHESTRATOR if LIVE else ""),
         middleware=[TodoListMiddleware()],  # adds write_todos
         subagents=build_subagents(),
         # agents see WORKSPACE as "/", so /data/comments.jsonl = workspace/data/comments.jsonl

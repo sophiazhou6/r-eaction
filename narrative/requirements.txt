@@ -1,0 +1,7 @@
+# Sophia's clustering + narrative tools (on top of scrapetools/requirements.txt)
+numpy
+pandas
+scikit-learn>=1.3     # HDBSCAN lives in sklearn.cluster
+umap-learn
+openai
+langchain-core

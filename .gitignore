@@ -1,0 +1,5 @@
+# local runs
+workspace/
+*.npy
+.env
+__pycache__/

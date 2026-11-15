@@ -182,7 +182,7 @@ def _js_div(p: dict, q: dict) -> float:
 
 def _when(t) -> str:
     import datetime as dt
-    return dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%b %d %H:%M UTC")
+    return dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%b %d %Y %H:%M UTC")
 
 
 def timeline_summary(path: str = DEFAULT_COMMENTS, n_windows: int = 6) -> str:

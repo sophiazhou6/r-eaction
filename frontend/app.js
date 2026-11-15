@@ -112,7 +112,7 @@ function buildModel(cl,co){
   const jd=co.js_distance; DIST={};DMAX=0;
   const fromJD=(a,b)=>{if(!jd)return null;
     if(Array.isArray(jd)){const e=jd.find(e=>(e.a===a&&e.b===b)||(e.a===b&&e.b===a));return e?(e.d??e.distance??e.value??null):null}
-    return jd[a]?.[b]??jd[b]?.[a]??null};
+    return jd[a]?.[b]??jd[b]?.[a]??jd[a+'|'+b]??jd[b+'|'+a]??null};
   SUBS.forEach(a=>SUBS.forEach(b=>{if(a===b)return;let d=fromJD(a.name,b.name);if(typeof d!=='number')d=jsd(a.p,b.p);DIST[a.name+'|'+b.name]=d;DMAX=Math.max(DMAX,d)}));
   if(!DMAX)DMAX=1;
 

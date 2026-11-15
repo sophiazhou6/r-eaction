@@ -8,7 +8,9 @@
       "huang",
       "nvidia",
       "nvda"
-    ]
+    ],
+    "path": "https://dexgswmmjewpcwkzocax.supabase.co/storage/v1/object/public/narrative-runs/jensen-huang-scandal/",
+    "sample": false
   },
   {
     "slug": "anthropic-ipo",
@@ -17,7 +19,8 @@
     "keywords": [
       "anthropic"
     ],
-    "sample": true
+    "sample": false,
+    "path": "https://dexgswmmjewpcwkzocax.supabase.co/storage/v1/object/public/narrative-runs/anthropic-ipo/"
   },
   {
     "slug": "faa-closure",
@@ -28,7 +31,9 @@
       "federal aviation",
       "air traffic",
       "airspace"
-    ]
+    ],
+    "path": "https://dexgswmmjewpcwkzocax.supabase.co/storage/v1/object/public/narrative-runs/faa-closure/",
+    "sample": false
   },
   {
     "slug": "fifa-election",
@@ -36,7 +41,9 @@
     "query": "new FIFA election",
     "keywords": [
       "fifa"
-    ]
+    ],
+    "path": "https://dexgswmmjewpcwkzocax.supabase.co/storage/v1/object/public/narrative-runs/new-fifa-election/",
+    "sample": false
   },
   {
     "slug": "you-can-see-everything",
@@ -45,6 +52,21 @@
     "keywords": [
       "you can see everything",
       "see everything"
-    ]
+    ],
+    "path": "https://dexgswmmjewpcwkzocax.supabase.co/storage/v1/object/public/narrative-runs/you-can-see-everything/",
+    "sample": false
+  },
+  {
+    "slug": "binance-hack",
+    "title": "Binance hack",
+    "query": "Binance hack",
+    "keywords": [
+      "binance",
+      "crypto hack",
+      "north korea hack",
+      "lazarus"
+    ],
+    "sample": false,
+    "path": "https://dexgswmmjewpcwkzocax.supabase.co/storage/v1/object/public/narrative-runs/binance-hack/"
   }
 ]

@@ -35,9 +35,35 @@ def cluster_summaries_tool(path: str = "/data/comments.jsonl") -> str:
 @tool
 def report_context_tool(path: str = "/data/comments.jsonl") -> str:
     """Everything needed for the briefing: narratives with quotes, stance splits, reply
-    patterns (echo_score, argues_with), communities, groups, shared commenters, and
-    content-vs-connectivity contrasts. Small JSON."""
+    patterns (echo_score, argues_with), communities, groups, shared commenters,
+    content-vs-connectivity contrasts, and the timeline story if it exists. Small JSON."""
     return glue.report_context(path)
+
+
+@tool
+def timeline_tool(path: str = "/data/comments.jsonl") -> str:
+    """Evidence for the story over time: origin, windows (narrative mix, stance split,
+    communities, quotes, threads that started then), turning points, spread order."""
+    return glue.timeline_summary(path)
+
+
+def timeline_subagent():
+    return {
+        "name": "timeline-analyst",
+        "description": "Tells how the conversation evolved over time: origin, themed phases, "
+                       "turning points with likely triggers, and spread. Writes /data/timeline.json.",
+        "system_prompt": prompts.TIMELINE_ANALYST,
+        "tools": [timeline_tool],
+    }
+
+
+def reporter_subagent():
+    return {
+        "name": "reporter",
+        "description": "Writes the final briefing to /data/briefing.json from report_context_tool.",
+        "system_prompt": prompts.REPORTER,
+        "tools": [report_context_tool],
+    }
 
 
 def build_subagents():
@@ -60,13 +86,7 @@ def build_subagents():
         "tools": [kent.plan_queries, kent.set_event_description, kent.search_many,
                   kent.search_reddit, kent.score_recall, kent.fetch_threads],
     }
-    reporter = {
-        "name": "reporter",
-        "description": "Writes the final briefing to /data/briefing.json from report_context_tool.",
-        "system_prompt": prompts.REPORTER,
-        "tools": [report_context_tool],
-    }
-    return [search, clustering, narrative, reporter]
+    return [search, clustering, narrative, timeline_subagent(), reporter_subagent()]
 
 
 def build_agent():
@@ -78,5 +98,21 @@ def build_agent():
         middleware=[TodoListMiddleware()],  # adds write_todos
         subagents=build_subagents(),
         # agents see WORKSPACE as "/", so /data/comments.jsonl = workspace/data/comments.jsonl
+        backend=FilesystemBackend(root_dir=config.WORKSPACE, virtual_mode=True),
+    )
+
+
+ENRICH_PROMPT = """Cached results for one event are in /data. Do exactly two steps, one at a time:
+1. task timeline-analyst: "narratives are labeled; write /data/timeline.json".
+2. task reporter: "write /data/briefing.json".
+Then reply with the reporter's headline."""
+
+
+def build_enrich_agent():
+    """Small agent for runs that already finished: adds the timeline and rewrites the briefing."""
+    return create_deep_agent(
+        model=MODEL, tools=[], system_prompt=ENRICH_PROMPT,
+        middleware=[TodoListMiddleware()],
+        subagents=[timeline_subagent(), reporter_subagent()],
         backend=FilesystemBackend(root_dir=config.WORKSPACE, virtual_mode=True),
     )

@@ -137,6 +137,7 @@ def report_context(path: str = DEFAULT_COMMENTS) -> str:
                    for g in (conn.get("community_groups") or {}).get("groups", [])][:8],
         "strongest_shared_commenters": sorted(conn.get("shared_commenters", []), key=lambda e: -e["jaccard"])[:6],
         "content_vs_connectivity": contrasts[:6],
+        "timeline": _load("/data/timeline.json"),
     })
 
 
@@ -164,3 +165,116 @@ def sentiment_summary(path: str = DEFAULT_COMMENTS) -> dict:
         "by_narrative": [{"id": n, "label": labels.get(n, f"cluster {n}")} | block(rows)
                          for n, rows in sorted(by_n.items(), key=lambda kv: -len(kv[1]))],
     }
+
+
+# ---------------------------------------------------------------- timeline (story over time)
+def _js_div(p: dict, q: dict) -> float:
+    import math
+    keys = set(p) | set(q)
+    P = [p.get(k, 0) + 1e-9 for k in keys]
+    Q = [q.get(k, 0) + 1e-9 for k in keys]
+    sp, sq = sum(P), sum(Q)
+    P, Q = [x / sp for x in P], [x / sq for x in Q]
+    M = [(a + b) / 2 for a, b in zip(P, Q)]
+    kl = lambda A, B: sum(a * math.log2(a / b) for a, b in zip(A, B))
+    return round(math.sqrt((kl(P, M) + kl(Q, M)) / 2), 3)
+
+
+def _when(t) -> str:
+    import datetime as dt
+    return dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%b %d %H:%M UTC")
+
+
+def timeline_summary(path: str = DEFAULT_COMMENTS, n_windows: int = 6) -> str:
+    """Evidence for the story of the conversation over time (no interpretation):
+    origin (first comments/threads), windows of equal comment count with their narrative mix,
+    stance split, communities and top quotes, the threads that STARTED in each window (likely
+    triggers), turning points (big change in narrative mix or stance between windows), and the
+    order communities joined. Sampling is by whole threads, so a shift can partly reflect which
+    threads were collected; say so when interpreting."""
+    clusters = json.loads(_clusters_path(path).read_text())
+    cm = sorted((c for c in clusters["comments"] if c.get("created_utc")), key=lambda c: c["created_utc"])
+    if len(cm) < 30:
+        return json.dumps({"error": "too few timestamped comments"})
+    labels = {n["id"]: n["label"] for n in clusters.get("narratives", [])}
+    lab = lambda c: labels.get(c.get("narrative", c["cluster"]), f"cluster {c['cluster']}")
+
+    titles = dict(_load("/data/threads.json") or {})  # saved by an earlier timeline call
+    q = _load("/data/queries.json") or {}
+    for qq in q.get("queries", {}).values():
+        for r in qq.get("results", []):
+            titles[r["post_id"]] = (r.get("title") or "")[:140]
+    raw = _resolve(path)
+    if raw.exists():  # top-level comments carry the post title as parent_body (Kent's format)
+        with raw.open() as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if r.get("parent_type") == "post" and r.get("post_id") not in titles and r.get("parent_body"):
+                    titles[r["post_id"]] = r["parent_body"].split("\n")[0][:140]
+        try:  # keep titles with the cached results (comments.jsonl is not cached)
+            _resolve("/data/threads.json").write_text(json.dumps(titles))
+        except OSError:
+            pass
+    thread_start, thread_sub, thread_n = {}, {}, Counter()
+    for c in cm:
+        thread_start.setdefault(c["post_id"], c["created_utc"])
+        thread_sub.setdefault(c["post_id"], c["subreddit"])
+        thread_n[c["post_id"]] += 1
+
+    size = max(30, len(cm) // n_windows)
+    windows, prev = [], None
+    for i in range(0, len(cm), size):
+        rows = cm[i:i + size]
+        if len(rows) < 15 and windows:  # fold a tiny tail into the last window
+            break
+        t0, t1 = rows[0]["created_utc"], rows[-1]["created_utc"]
+        mix = Counter(lab(r) for r in rows)
+        mix = {k: round(v / len(rows), 2) for k, v in mix.most_common()}
+        sp = _split(rows)
+        started = sorted((p for p, t in thread_start.items() if t0 <= t <= t1), key=lambda p: -thread_n[p])[:3]
+        w = {"window": len(windows), "from": _when(t0), "to": _when(t1), "n_comments": len(rows),
+             "communities": dict(Counter(r["subreddit"] for r in rows).most_common(3)),
+             "narrative_mix": dict(list(mix.items())[:4]), "stance_split": sp,
+             "threads_started": [{"subreddit": thread_sub[p], "title": titles.get(p, "(title unknown)"),
+                                  "comments": thread_n[p]} for p in started],
+             "top_quotes": [{"subreddit": r["subreddit"], "narrative": lab(r), "text": _short(r["body"], 180)}
+                            for r in sorted(rows, key=lambda r: -(r.get("weight") or 0))[:3]]}
+        if prev:
+            shift = _js_div(prev["narrative_mix"], w["narrative_mix"])
+            ds = None
+            if prev["stance_split"] and sp:
+                ds = round(sp["pct_side_0"] - prev["stance_split"]["pct_side_0"], 2)
+            w["change_from_previous"] = {"narrative_shift": shift, "side_0_change": ds,
+                                         "turning_point": bool(shift >= 0.25 or (ds is not None and abs(ds) >= 0.15))}
+        windows.append(w)
+        prev = w
+
+    first_by_sub = {}
+    for c in cm:
+        first_by_sub.setdefault(c["subreddit"], []).append(c)
+    spread = []
+    for s, rows in sorted(first_by_sub.items(), key=lambda kv: kv[1][0]["created_utc"]):
+        if len(rows) < 15:
+            continue
+        early = rows[:50]
+        spread.append({"subreddit": s, "joined": _when(rows[0]["created_utc"]), "n_comments": len(rows),
+                       "brought": Counter(lab(r) for r in early).most_common(1)[0][0],
+                       "early_stance_split": _split(early)})
+
+    origin_rows = cm[:max(20, len(cm) // 20)]
+    first_threads = sorted(thread_start, key=thread_start.get)[:3]
+    return json.dumps({
+        "stance_axis": _load("/data/stance_axis.json"),
+        "span": {"from": _when(cm[0]["created_utc"]), "to": _when(cm[-1]["created_utc"]), "n_comments": len(cm)},
+        "origin": {"communities": dict(Counter(r["subreddit"] for r in origin_rows).most_common(3)),
+                   "narrative_mix": {k: round(v / len(origin_rows), 2)
+                                     for k, v in Counter(lab(r) for r in origin_rows).most_common(3)},
+                   "first_threads": [{"subreddit": thread_sub[p], "title": titles.get(p, "(title unknown)"),
+                                      "started": _when(thread_start[p])} for p in first_threads]},
+        "windows": windows,
+        "spread_order": spread,
+        "caveat": "Collected by whole threads: shifts can partly reflect which threads were sampled.",
+    })

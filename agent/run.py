@@ -3,7 +3,8 @@
 From the repo root:
     uv run python -m agent.run "jensen huang scandal"            # live: 10 threads x 1000 comments
     uv run python -m agent.run "anthropic IPO" --demo            # deep: 15 threads x 5000 comments
-    uv run python -m agent.run "FAA closure" --demo --archive    # also save to Supabase narrative_runs
+    uv run python -m agent.run "FAA closure" --publish           # live run, also put online
+  --demo and --publish upload results to Supabase Storage (see agent/publish.py).
 
 Every run copies its outputs to workspace/cache/<event-slug>/ so demo events are kept.
 """
@@ -25,7 +26,7 @@ if "--demo" in FLAGS:  # must be set before agent.agent is imported
 from agent.agent import MAX_COMMENTS, MAX_POSTS, build_agent, config, kent  # noqa: E402
 
 OUTPUTS = ("queries.json", "stance_axis.json", "subreddit_aliases.json", "clusters.json", "connectivity.json",
-           "briefing.json")
+           "timeline.json", "threads.json", "briefing.json")
 
 
 def main():
@@ -52,7 +53,9 @@ def main():
                 for call in getattr(m, "tool_calls", None) or []:
                     print(f"-> {call['name']} {call['args'].get('subagent_type', '')}")
                 if getattr(m, "type", "") == "ai" and m.content:
-                    final = m.content
+                    c = m.content  # may be a list of blocks (thinking + text)
+                    final = c if isinstance(c, str) else "\n".join(
+                        b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
 
     print("\n=== Final ===")
     print(final)
@@ -83,6 +86,15 @@ def main():
     (cache / "meta.json").write_text(json.dumps({"event": event, "event_id": event_id,
                                                  "max_posts": MAX_POSTS, "max_comments": MAX_COMMENTS}))
     print(f"Cached to {cache}")
+
+    # put it online: Supabase Storage (public bucket), so the website loads it instantly
+    if "--demo" in FLAGS or "--publish" in FLAGS:
+        try:
+            from agent.publish import publish
+            base = publish([slug])
+            print(f"Online: {base}/{slug}/briefing.json")
+        except Exception as e:
+            print(f"(publish skipped: {str(e)[:150]}) -> retry later: uv run python -m agent.publish {slug}")
 
     if "--archive" in FLAGS:  # Sophia's archiver; never deletes comments from here
         from narrative.sophia_tools import archive_and_cleanup

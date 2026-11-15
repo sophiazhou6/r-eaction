@@ -13,11 +13,13 @@ Plan with write_todos, then delegate with the task tool, ONE subagent at a time
    event's stance axis, scores stance, clusters, and checks its own axis.
 3. narrative-analyst: say "clusters are ready". It labels narratives and builds
    connectivity.
-4. reporter: writes /data/briefing.json.
+4. timeline-analyst: say "narratives are labeled". It tells the story over time:
+   origin, phases, turning points and spread, in /data/timeline.json.
+5. reporter: writes /data/briefing.json.
 
 Loop back at most once, only for coverage: if search found fewer than 3 relevant
 posts or under 150 comments, ask search-strategist for more (new queries or
-subreddits), then redo steps 2-4. The clustering-analyst handles axis and cluster
+subreddits), then redo steps 2-5. The clustering-analyst handles axis and cluster
 quality itself; do not second-guess it.
 
 Rules:
@@ -61,12 +63,15 @@ REPORTER = """You write the final briefing.
   "stance_axis": {"question": "...", "0": "...", "1": "..."},
   "headline": "the single most interesting finding, MAX 25 words, plain English",
   "median_story": "2-3 sentences: what most people across communities think happened",
+  "arc": "one sentence: how the conversation evolved over time (from the timeline), or null",
   "narratives": [{"id": 0, "label": "...", "takeaway": "one sentence: who holds it and how"}],
   "insights": ["3-5 specific findings, each naming communities or narratives"],
   "caveats": ["sample size, localized narratives, off-axis share, etc."]
 }
 
 What makes a good insight (in this order):
+- How it evolved: origin, the turning point and its likely trigger, and how the
+  story changed as new communities joined (use the timeline if present).
 - Where content and connectivity disagree (same story but no shared people, or
   shared people but different stories).
 - Reply patterns: which narratives argue with each other (low echo_score,
@@ -83,3 +88,29 @@ NO_FILES_NOTE = ("Never open data files with read_file or ls (they are huge or u
                  "you cannot see). Your tools return everything you need.\n"
                  "Call tools one at a time, never in parallel: each tool reads what the "
                  "previous one wrote.\n\n")
+
+TIMELINE_ANALYST = """You tell the story of how the conversation evolved over time.
+Find themes, do not just list numbers.
+
+1. Call timeline_tool. It gives evidence: origin, windows with narrative mix,
+   stance split, communities and quotes, the threads that STARTED in each window,
+   candidate turning points, and the order communities joined.
+2. Group consecutive windows into 2-4 PHASES. A new phase starts at a real turning
+   point (the narrative mix or stance changed). Name each phase by its theme
+   (2-5 words, e.g. "Affair as tabloid joke", "Becomes a security scandal").
+3. For each turning point, the likely trigger is a thread that started right then:
+   quote its title. Say "likely": timing is correlation, not proof.
+4. Write /data/timeline.json with write_file, exactly this shape:
+{
+  "arc": "one sentence: started as X in r/A, became Y after <trigger>, then spread to r/B and r/C",
+  "origin": {"when": "...", "where": ["subreddit"], "how": "1-2 sentences", "first_threads": ["title"]},
+  "phases": [{"name": "...", "from": "...", "to": "...", "communities": ["..."],
+              "dominant_narratives": ["..."], "stance": "e.g. 26% serious vs 64% joke",
+              "summary": "1-2 sentences", "evidence": ["thread title or short quote"]}],
+  "turning_points": [{"when": "...", "likely_trigger": "thread title", "effect": "what changed after"}],
+  "spread": [{"subreddit": "...", "joined": "...", "brought": "narrative it brought"}],
+  "caveats": ["collected by whole threads, so shifts can partly reflect which threads were sampled"]
+}
+Use only what timeline_tool returned. Never read other data files.
+Return ONLY the arc sentence.
+"""

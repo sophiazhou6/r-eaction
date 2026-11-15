@@ -10,3 +10,4 @@ data/
 *.pyc
 .DS_Store
 workspace_run_output.txt
+compare_output.txt

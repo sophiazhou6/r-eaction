@@ -203,7 +203,8 @@ def score_stance(path: str, axis: dict, batch_size: int = 25, concurrency: int =
     drop = [c for c in ["stance", "emotion", "claim", "endorse_only"] if c in df]
     out = df.drop(columns=drop).merge(res, on="id", how="left")
     out["stance"] = pd.to_numeric(out["stance"], errors="coerce").clip(0, 1)
-    out["claim"] = out["claim"].fillna(out["body"].map(lambda t: _short(t, 400))).map(_clean_claim)
+    out["claim"] = out["claim"].fillna(out["body"].map(lambda t: _short(t, 400)))
+    out["claim"] = [_clean_claim(c, b) for c, b in zip(out["claim"], out["body"])]
     out["endorse_only"] = out["endorse_only"].fillna(False).astype(bool)
     out["emotion"] = out["emotion"].fillna("unknown")
     # write back the ORIGINAL columns (Kent's format, untouched values) + the 4 new ones
@@ -223,16 +224,19 @@ def score_stance(path: str, axis: dict, batch_size: int = 25, concurrency: int =
 
 
 _BOILER = re.compile(r"^(the |this )?(commenter|comment|user|author|poster)\s+(\w+\s+){0,2}?"
-                     r"(that|states|claims|believes|asserts|argues|says|suggests|questions|thinks)\s*(that\s+)?",
+                     r"(that|states|claims|believes|asserts|argues|says|suggests|questions|thinks|discusses|mentions|notes|"
+                     r"expresses|points out|wonders|asks|jokes|criticizes|implies|speculates)\s*(that\s+|about\s+)?",
                      re.I)
 _AXIS_LEAK = re.compile(r"\b(does not|doesn't|without) (directly )?address(ing)?\b.*$", re.I)
 
 
-def _clean_claim(c):
+def _clean_claim(c, body=""):
     c = str(c or "").strip()
     c = _BOILER.sub("", c)
-    c = _AXIS_LEAK.sub("", c).strip(" ,;.") + "."
-    return c[:1].upper() + c[1:] if len(c) > 1 else c
+    c = _AXIS_LEAK.sub("", c).strip(" ,;.")
+    if len(c.split()) < 3 or c.lower() in ("this comment", "the comment", "the commenter"):
+        return _short(body, 300)            # nothing left: fall back to the raw comment
+    return c[:1].upper() + c[1:] + "."
 
 
 # ================================================================ weights

@@ -80,7 +80,7 @@ def metrics(out, name):
         top_thread.append(max(members.count(t) for t in set(members)) / len(members))
     return {"n_clusters": len(cl), "noise": next((s["noise"] for s in out["sweep"]
                                                   if s.get("min_cluster_size") == out.get("min_cluster_size")), None),
-            "largest_share": max(c["size"] for c in cl) / len(cm),
+            "largest_share": round(max(c["size"] for c in cl) / len(cm), 3),
             "mean_top_thread_share": round(sum(top_thread) / len(top_thread), 3),
             "nmi_with_thread": round(nmi(thr, lab), 3),        # lower = clusters less tied to threads
             "nmi_with_subreddit": round(nmi(sub, lab), 3),

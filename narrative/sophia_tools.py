@@ -497,6 +497,34 @@ def set_narratives(narratives: list[dict], path: str = DEFAULT_COMMENTS) -> dict
     return {"path": str(cpath), "narratives": [(n["id"], n["label"]) for n in data["narratives"]]}
 
 
+def _aliases(path=DEFAULT_COMMENTS) -> dict:
+    f = _resolve(path).with_name("subreddit_aliases.json")
+    return json.loads(f.read_text()) if f.exists() else {}
+
+
+def set_subreddit_aliases(aliases: dict, path: str = DEFAULT_COMMENTS) -> dict:
+    """Merge subreddits that are the SAME community under different names, e.g.
+    {"cs": "computerscience", "tech": "technology"} (old name -> name to keep).
+    Rewrites `subreddit` on every comment in clusters.json (original kept in `orig_subreddit`)
+    and saves data/subreddit_aliases.json so build_connectivity merges authors too."""
+    clean = {}
+    for k, v in (aliases or {}).items():
+        k, v = str(k).removeprefix("r/").strip(), str(v).removeprefix("r/").strip()
+        if k and v and k.lower() != v.lower():
+            clean[k] = v
+    _resolve(path).with_name("subreddit_aliases.json").write_text(json.dumps(clean, indent=2))
+    cpath = _clusters_path(path)
+    counts = {}
+    if cpath.exists():
+        data = json.loads(cpath.read_text())
+        for c in data["comments"]:
+            orig = c.get("orig_subreddit", c["subreddit"])
+            c["orig_subreddit"], c["subreddit"] = orig, clean.get(orig, orig)
+            counts[c["subreddit"]] = counts.get(c["subreddit"], 0) + 1
+        cpath.write_text(json.dumps(data))
+    return {"aliases": clean, "communities": dict(sorted(counts.items(), key=lambda kv: -kv[1]))}
+
+
 def _js(p, q):
     p, q = np.asarray(p, float) + 1e-12, np.asarray(q, float) + 1e-12
     p, q = p / p.sum(), q / q.sum()
@@ -558,6 +586,9 @@ def build_connectivity(path: str = DEFAULT_COMMENTS, top_k: int = 8, min_comment
     narrs = sorted(cm[col].unique().tolist())
     counts = cm["subreddit"].value_counts()
     raw = load_comments(path)                                   # all authors, incl. agree-only repliers
+    al = _aliases(path)
+    if al:                                                      # same community, different names
+        raw["subreddit"] = raw["subreddit"].map(lambda s: al.get(s, s))
     users_all = raw.groupby("subreddit")["author"].apply(set).to_dict()
     sd = lambda v: None if pd.isna(v) else round(float(v), 2)
 
@@ -687,9 +718,18 @@ def make_tools():
         return json.dumps(set_narratives(narratives, path))
 
     @tool
+    def set_subreddit_aliases_tool(aliases: dict, path: str = DEFAULT_COMMENTS) -> str:
+        """Merge subreddits that are the SAME community under different names, before connectivity_tool.
+        aliases = {"old name": "name to keep"}, e.g. {"cs": "computerscience", "tech": "technology"}.
+        Only near-duplicates (same audience, same topic). NEVER merge different topics such as
+        news and politics, or technology and stocks. Skip this tool if there are no duplicates."""
+        return json.dumps(set_subreddit_aliases(aliases, path))
+
+    @tool
     def connectivity_tool(path: str = DEFAULT_COMMENTS) -> str:
         """Build community distances, shared commenters, community groups (near-identical subreddits merged
-        by shared commenters) and the reply matrix. Call after set_narratives_tool."""
+        by shared commenters) and the reply matrix. Call after set_narratives_tool
+        (and after set_subreddit_aliases_tool, if any subreddits are duplicates)."""
         return json.dumps(build_connectivity(path))
 
     @tool
@@ -699,7 +739,8 @@ def make_tools():
         return json.dumps(set_group_labels(labels, path))
 
     return [community_summary_tool, preview_comments_tool, score_stance_tool,
-            cluster_narratives_tool, set_narratives_tool, connectivity_tool, set_group_labels_tool]
+            cluster_narratives_tool, set_narratives_tool, set_subreddit_aliases_tool,
+            connectivity_tool, set_group_labels_tool]
 
 
 def subagent_specs():
@@ -728,11 +769,15 @@ def subagent_specs():
              "1. For each cluster write a neutral label (<=6 words) and a one-sentence summary of the shared claim.\n"
              "   Describe the position; do not judge it.\n"
              "2. If two clusters make the same claim, merge the smaller into the larger.\n"
-             "3. Call set_narratives_tool once with all clusters, then connectivity_tool.\n"
+             "3. Call set_narratives_tool once with all clusters.\n"
+             "   Then look at the subreddit names: if two are the SAME community under different names\n"
+             "   (r/cs and r/computerscience, r/tech and r/technology), call set_subreddit_aliases_tool once.\n"
+             "   Never merge different topics (news vs politics). Then call connectivity_tool.\n"
              "   Then name each multi-member community group with set_group_labels_tool (2-3 words).\n"
              "4. Report the narratives, flag localized ones (mostly one thread), and note any cluster whose\n"
              "   most-contested comments show a real disagreement."),
-         "tools": [t["set_narratives_tool"], t["connectivity_tool"], t["set_group_labels_tool"]]},
+         "tools": [t["set_narratives_tool"], t["set_subreddit_aliases_tool"], t["connectivity_tool"],
+                   t["set_group_labels_tool"]]},
     ]
 
 

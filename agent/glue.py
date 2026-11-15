@@ -89,6 +89,13 @@ def report_context(path: str = DEFAULT_COMMENTS) -> str:
                                         for r in rows[:2]]})
 
     labels = {n["id"]: n["label"] for n in narratives}
+    # reply patterns: where each narrative's replies go (row -> column, % of row)
+    rm = conn.get("reply_matrix_pct") or {}
+    for n in narratives:
+        row = {int(k): v for k, v in (rm.get(str(n["id"])) or {}).items() if int(k) != n["id"] and int(k) in labels}
+        if row:
+            tgt, pct = max(row.items(), key=lambda kv: kv[1])
+            n["argues_with"] = {"narrative": labels[tgt], "pct_of_replies": pct}
     shares = conn.get("shares", {})
     by_sub = {}
     for c in clusters["comments"]:
@@ -131,3 +138,29 @@ def report_context(path: str = DEFAULT_COMMENTS) -> str:
         "strongest_shared_commenters": sorted(conn.get("shared_commenters", []), key=lambda e: -e["jaccard"])[:6],
         "content_vs_connectivity": contrasts[:6],
     })
+
+
+def sentiment_summary(path: str = DEFAULT_COMMENTS) -> dict:
+    """Deterministic sentiment block for briefing.json (no LLM): stance split and top emotions
+    per community and per narrative, straight from the scored comments."""
+    clusters = json.loads(_clusters_path(path).read_text())
+    cm = clusters["comments"]
+    labels = {n["id"]: n["label"] for n in clusters.get("narratives", [])}
+
+    def block(rows):
+        emo = Counter(r.get("emotion") for r in rows if r.get("emotion") not in (None, "unknown"))
+        return {"n_comments": len(rows), "stance_split": _split(rows),
+                "top_emotions": {e: round(k / len(rows), 2) for e, k in emo.most_common(4)}}
+
+    by_sub, by_n = {}, {}
+    for c in cm:
+        by_sub.setdefault(c["subreddit"], []).append(c)
+        by_n.setdefault(c.get("narrative", c["cluster"]), []).append(c)
+    return {
+        "stance_axis": _load("/data/stance_axis.json"),
+        "overall": block(cm),
+        "by_community": [{"subreddit": s} | block(rows)
+                         for s, rows in sorted(by_sub.items(), key=lambda kv: -len(kv[1]))],
+        "by_narrative": [{"id": n, "label": labels.get(n, f"cluster {n}")} | block(rows)
+                         for n, rows in sorted(by_n.items(), key=lambda kv: -len(kv[1]))],
+    }

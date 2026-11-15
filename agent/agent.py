@@ -19,40 +19,50 @@ from narrative.sophia_tools import subagent_specs  # noqa: E402
 # Dev: cheap model. Demo: MODEL=anthropic:claude-sonnet-5-5 (or openai:gpt-4.1)
 MODEL = os.getenv("MODEL", "anthropic:claude-haiku-5-5")
 
+# How much to download. run.py sets these: live runs stay fast, --demo runs go deep.
+MAX_POSTS = os.getenv("MAX_POSTS", "10")
+MAX_COMMENTS = os.getenv("MAX_COMMENTS", "1000")
+
 
 @tool
 def cluster_summaries_tool(path: str = "/data/comments.jsonl") -> str:
     """Call FIRST, before labeling. For each cluster: size, keywords, subreddits, mean stance,
-    localized flag, and ~8 representative comments (claim + original text)."""
+    stance_split, localized flag, and ~8 representative comments (claim + original text).
+    If stance_split.polarized is true, label the TOPIC neutrally, not one side."""
     return glue.cluster_summaries(path)
 
 
 @tool
 def report_context_tool(path: str = "/data/comments.jsonl") -> str:
-    """Everything needed for the briefing: narratives with quotes, communities, groups,
-    shared commenters, and content-vs-connectivity contrasts. Small JSON."""
+    """Everything needed for the briefing: narratives with quotes, stance splits, reply
+    patterns (echo_score, argues_with), communities, groups, shared commenters, and
+    content-vs-connectivity contrasts. Small JSON."""
     return glue.report_context(path)
 
 
 def build_subagents():
     clustering, narrative = subagent_specs()
+    clustering = {**clustering, "system_prompt": prompts.NO_FILES_NOTE + clustering["system_prompt"]}
     narrative = {
         **narrative,
         "tools": [cluster_summaries_tool, *narrative["tools"]],
-        "system_prompt": "Step 0: call cluster_summaries_tool to see what each cluster says.\n\n"
-                         + narrative["system_prompt"],
+        "system_prompt": prompts.NO_FILES_NOTE
+        + "Step 0: call cluster_summaries_tool to see what each cluster says.\n"
+          "set_narratives_tool must FINISH before you call connectivity_tool.\n\n"
+        + narrative["system_prompt"],
     }
     search = {
         "name": "search-strategist",
         "description": "Turns the event into Reddit searches, scores them by recall@k, loops until "
                        "coverage is good, then downloads the threads to /data/comments.jsonl.",
-        "system_prompt": prompts.SEARCH_STRATEGIST,
-        "tools": [kent.plan_queries, kent.set_event_description, kent.search_reddit,
-                  kent.score_recall, kent.fetch_threads],
+        "system_prompt": prompts.SEARCH_STRATEGIST.replace("__MAX_POSTS__", MAX_POSTS)
+                                                  .replace("__MAX_COMMENTS__", MAX_COMMENTS),
+        "tools": [kent.plan_queries, kent.set_event_description, kent.search_many,
+                  kent.search_reddit, kent.score_recall, kent.fetch_threads],
     }
     reporter = {
         "name": "reporter",
-        "description": "Writes the final briefing to /data/briefing.json from report_context.",
+        "description": "Writes the final briefing to /data/briefing.json from report_context_tool.",
         "system_prompt": prompts.REPORTER,
         "tools": [report_context_tool],
     }

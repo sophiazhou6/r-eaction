@@ -1,10 +1,15 @@
 """Run one investigation end to end.
 
 From the repo root:
-    uv run python -m agent.run "jensen huang scandal"
-    uv run python -m agent.run "anthropic IPO" --keep      # don't wipe the previous run's files
+    uv run python -m agent.run "jensen huang scandal"            # live: 10 threads x 1000 comments
+    uv run python -m agent.run "anthropic IPO" --demo            # deep: 15 threads x 5000 comments
+    uv run python -m agent.run "FAA closure" --demo --archive    # also save to Supabase narrative_runs
+
+Every run copies its outputs to workspace/cache/<event-slug>/ so demo events are kept.
 """
 import json
+import os
+import re
 import shutil
 import sys
 
@@ -12,20 +17,27 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from agent.agent import build_agent, config, kent  # noqa: E402
+FLAGS = {a for a in sys.argv[1:] if a.startswith("--")}
+if "--demo" in FLAGS:  # must be set before agent.agent is imported
+    os.environ.setdefault("MAX_POSTS", "15")
+    os.environ.setdefault("MAX_COMMENTS", "5000")
+
+from agent.agent import MAX_COMMENTS, MAX_POSTS, build_agent, config, kent  # noqa: E402
+
+OUTPUTS = ("queries.json", "stance_axis.json", "subreddit_aliases.json", "clusters.json", "connectivity.json",
+           "briefing.json")
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    event = " ".join(args) or "jensen huang scandal"
+    event = " ".join(a for a in sys.argv[1:] if not a.startswith("--")) or "jensen huang scandal"
 
     # fresh workspace per event: Sophia's tools cache embeddings/UMAP next to the data
-    if "--keep" not in sys.argv and config.DATA_DIR.exists():
+    if config.DATA_DIR.exists():
         shutil.rmtree(config.DATA_DIR)
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     event_id = kent.start_event(event)  # Supabase events row + resets /data files
-    print(f"Investigating: {event}  (event_id={event_id})\n")
+    print(f"Investigating: {event}  (event_id={event_id}, up to {MAX_POSTS} threads x {MAX_COMMENTS} comments)\n")
 
     agent = build_agent()
     final = None
@@ -45,19 +57,36 @@ def main():
     print("\n=== Final ===")
     print(final)
 
-    briefing = config.DATA_DIR / "briefing.json"
     print(f"\nFiles in {config.DATA_DIR}:")
-    for name in ("comments.jsonl", "clusters.json", "connectivity.json", "briefing.json"):
-        print(f"  {'OK ' if (config.DATA_DIR / name).exists() else 'MISSING'} {name}")
+    for name in OUTPUTS:
+        print(f"  {'OK     ' if (config.DATA_DIR / name).exists() else 'MISSING'} {name}")
 
-    # Best effort: save the briefing on the event row (needs a jsonb `briefing` column)
-    if briefing.exists():
+    # add a deterministic sentiment section (stance split + emotions) to the briefing
+    briefing = config.DATA_DIR / "briefing.json"
+    if briefing.exists() and (config.DATA_DIR / "clusters.json").exists():
+        from agent.glue import sentiment_summary
         try:
-            config.supabase().table("events").update(
-                {"briefing": json.loads(briefing.read_text())}).eq("event_id", event_id).execute()
-            print("Briefing saved to Supabase events row.")
+            b = json.loads(briefing.read_text())
+            b["sentiment"] = sentiment_summary()
+            briefing.write_text(json.dumps(b, indent=2))
+            print("Added sentiment section to briefing.json")
         except Exception as e:
-            print(f"(Supabase briefing save skipped: {str(e)[:120]})")
+            print(f"(sentiment section skipped: {e})")
+
+    # keep this event's outputs (the next run wipes workspace/data)
+    slug = re.sub(r"[^a-z0-9]+", "-", event.lower()).strip("-")[:60]
+    cache = config.WORKSPACE / "cache" / slug
+    cache.mkdir(parents=True, exist_ok=True)
+    for name in OUTPUTS:
+        if (config.DATA_DIR / name).exists():
+            shutil.copy2(config.DATA_DIR / name, cache / name)
+    (cache / "meta.json").write_text(json.dumps({"event": event, "event_id": event_id,
+                                                 "max_posts": MAX_POSTS, "max_comments": MAX_COMMENTS}))
+    print(f"Cached to {cache}")
+
+    if "--archive" in FLAGS:  # Sophia's archiver; never deletes comments from here
+        from narrative.sophia_tools import archive_and_cleanup
+        print("Archive:", archive_and_cleanup(event_id, delete_comments=False))
 
 
 if __name__ == "__main__":

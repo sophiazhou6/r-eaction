@@ -80,7 +80,11 @@ Orchestrator (write_todos, delegates with task)            agent/agent.py, agent
 - run.py wipes workspace/data per event (Sophia caches embeddings/UMAP there), calls kent.start_event() first,
   and tries to save briefing.json to the Supabase events row (needs a jsonb `briefing` column).
 - UI reads workspace/data/clusters.json + connectivity.json (+ briefing.json for text).
-- Run from repo root: `uv run python -m agent.run "event"`. Dev MODEL default anthropic:claude-haiku-5-5.
+- Run from repo root: `uv run python -m agent.run "event"` (live: 10 threads x 1000 comments) or add `--demo` (15 x 5000)
+  and `--archive` (Sophia's archive_and_cleanup to Supabase narrative_runs, never deletes). Each run is cached to
+  workspace/cache/<event-slug>/. Dev MODEL default anthropic:claude-haiku-5-5.
+- search-strategist uses Kent's search_many (parallel query x subreddit grid). Sophia's clustering-analyst owns axis
+  quality (axis_check 40% rule) and cluster reruns; the orchestrator only loops for thin coverage.
 
 Loops (keep visible for the deepagents judges):
 - search: < 5 relevant posts or recall@10 < 0.5 -> new queries/subreddits (max 2 extra rounds)

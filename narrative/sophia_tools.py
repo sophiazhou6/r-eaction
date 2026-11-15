@@ -532,12 +532,30 @@ def _js(p, q):
     return float(((p * np.log2(p / m)).sum() + (q * np.log2(q / m)).sum()) / 2)
 
 
-def _mds(D):
+def _classical_mds(D):
     n = len(D)
     J = np.eye(n) - 1 / n
     vals, vecs = np.linalg.eigh(-0.5 * J @ (D ** 2) @ J)
     idx = np.argsort(vals)[::-1][:2]
     return vecs[:, idx] * np.sqrt(np.clip(vals[idx], 0, None))
+
+
+def _mds(D):
+    """2D layout whose distances match D as closely as possible (metric MDS / SMACOF, started from
+    classical MDS). Classical MDS alone collapsed r/news and r/stocks (0.19 apart -> 0.015) on event 5."""
+    X0 = _classical_mds(D)
+    if len(D) < 3:
+        return X0
+    try:
+        from sklearn.manifold import MDS
+        try:
+            m = MDS(n_components=2, metric="precomputed", n_init=1, init="classical_mds", random_state=0)
+            return m.fit_transform(D)
+        except TypeError:   # older sklearn API
+            m = MDS(n_components=2, dissimilarity="precomputed", n_init=1, random_state=0)
+            return m.fit_transform(D, init=X0)
+    except Exception:
+        return X0
 
 
 def _unit_tables(d: pd.DataFrame, unit: str, units: list, col: str, narrs: list):
@@ -563,6 +581,37 @@ def _jaccard_matrix(users: dict, units: list) -> np.ndarray:
             A, B = users.get(a, set()), users.get(units[j], set())
             J[i, j] = J[j, i] = len(A & B) / len(A | B) if (A or B) else 0.0
     return J
+
+
+THICK_JACCARD = 0.05     # overlap above this counts as "many shared commenters" in absolute terms
+
+
+def _pair_insights(subs, D, J, users) -> list[dict]:
+    """Label every subreddit pair by narrative distance (content) x commenter overlap (connectivity).
+      close + thick  -> shared ecosystem (same people, same story)
+      close + thin   -> independent convergence (different people reached the same story)
+      far   + thick  -> same people, different framing
+      far   + thin   -> separate worlds
+    "close" = narrative distance below the median pair; "thick" = Jaccard >= THICK_JACCARD, or above the
+    median when overlap is generally high."""
+    pairs = [(i, j) for i in range(len(subs)) for j in range(i + 1, len(subs))]
+    if not pairs:
+        return []
+    dmed = float(np.median([D[i, j] for i, j in pairs]))
+    jvals = [J[i, j] for i, j in pairs]
+    jcut = max(THICK_JACCARD, float(np.median(jvals))) if max(jvals) >= THICK_JACCARD else THICK_JACCARD
+    out = []
+    for i, j in pairs:
+        close, thick = D[i, j] <= dmed, J[i, j] >= jcut
+        kind = ("shared ecosystem" if close and thick else "independent convergence" if close
+                else "same people, different framing" if thick else "separate worlds")
+        a, b = subs[i], subs[j]
+        out.append({"a": a, "b": b, "narrative_distance": round(float(D[i, j]), 3),
+                    "jaccard": round(float(J[i, j]), 4),
+                    "shared": len(users.get(a, set()) & users.get(b, set())), "insight": kind})
+    order = {"independent convergence": 0, "same people, different framing": 1, "shared ecosystem": 2,
+             "separate worlds": 3}
+    return sorted(out, key=lambda r: (order[r["insight"]], r["narrative_distance"]))
 
 
 def build_connectivity(path: str = DEFAULT_COMMENTS, top_k: int = 8, min_comments: int = 50,
@@ -600,6 +649,9 @@ def build_connectivity(path: str = DEFAULT_COMMENTS, top_k: int = 8, min_comment
     overlap = [{"a": a, "b": b, "shared": len(users_all.get(a, set()) & users_all.get(b, set())),
                 "jaccard": round(float(Js[i, j]), 3)}
                for i, a in enumerate(subs) for j, b in enumerate(subs) if i < j and Js[i, j] > 0]
+
+    # ---------- content vs connectivity: where the two disagree is the finding
+    pair_insights = _pair_insights(subs, D, Js, users_all)
 
     # ---------- community groups (all subreddits with >= min_group_comments)
     gsubs = counts[counts >= min_group_comments].index.tolist()
@@ -656,6 +708,7 @@ def build_connectivity(path: str = DEFAULT_COMMENTS, top_k: int = 8, min_comment
         "stance": {s: {int(k): sd(v) for k, v in stance.loc[s].items()} for s in subs},
         "js_distance": {f"{a}|{b}": round(float(D[i, j]), 3) for i, a in enumerate(subs) for j, b in enumerate(subs) if i < j},
         "shared_commenters": overlap,
+        "pair_insights": pair_insights,
         "community_groups": {"group_by": group_by, "groups": groups,
                              "shared_commenters": [{"a": a, "b": b, "jaccard": round(float(Jgg[i, j]), 3)}
                                                    for i, a in enumerate(gunits) for j, b in enumerate(gunits)
@@ -668,6 +721,8 @@ def build_connectivity(path: str = DEFAULT_COMMENTS, top_k: int = 8, min_comment
     opath = _resolve(path).with_name("connectivity.json")
     opath.write_text(json.dumps(out, indent=2))
     return {"path": str(opath), "communities": subs, "n_overlap_edges": len(overlap),
+            "pair_insights": [f"{p['a']}~{p['b']}: {p['insight']} (dist {p['narrative_distance']}, "
+                              f"{p['shared']} shared)" for p in pair_insights[:6]],
             "groups": [{"id": g["id"], "members": g["members"][:8], "n_comments": g["n_comments"]} for g in groups],
             "n_reply_links": int(rm.values.sum())}
 

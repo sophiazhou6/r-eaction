@@ -8,6 +8,8 @@ Writes workspace/data/{comments.jsonl, clusters.json, connectivity.json} and pri
 Uses the embeddings already stored in Supabase (all-MiniLM-L6-v2), so no OpenAI key is needed.
 With OPENAI_API_KEY set and --llm, it also scores stance + rewrites claims (then embeds claims).
 """
+from __future__ import annotations
+
 import argparse
 import csv
 import json
@@ -26,8 +28,12 @@ COLS = ["comment_id", "post_id", "subreddit", "author_hash", "body", "score", "d
 
 
 def from_supabase(event_id):
-    import config
-    sb = config.supabase()
+    # own client (works on the Mac's default Python 3.9, where scrapetools/config.py can't import)
+    import os
+    from dotenv import load_dotenv
+    from supabase import create_client
+    load_dotenv(ROOT / ".env")
+    sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SECRET_KEY"])
     if event_id is None:
         ev = sb.table("event_posts").select("event_id").eq("comments_fetched", True) \
                .order("event_id", desc=True).limit(1).execute().data

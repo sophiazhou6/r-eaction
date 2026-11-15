@@ -1,0 +1,7 @@
+# Kent's tools (search / recall / threads / embeddings). Works on Python 3.10+.
+openai
+supabase>=2
+python-dotenv
+praw
+requests
+sentence-transformers

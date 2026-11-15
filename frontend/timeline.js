@@ -81,6 +81,7 @@
   .tlv .ax{font-size:11px;fill:var(--faint)}
   .tlv .phl{font-family:var(--serif);font-size:13px;fill:var(--mute);font-weight:600}
   .tlv .phd{font-size:10.5px;fill:var(--faint)}
+  .tlv .phl,.tlv .phd{paint-order:stroke;stroke:var(--bg);stroke-width:4px;stroke-linejoin:round}
   .tlv .tpl{font-size:10.5px;fill:#d24a2c;font-weight:600}
   .tlv .tp{cursor:help}
   .tlv path.lay{transition:opacity .15s}
@@ -139,9 +140,26 @@
     view.innerHTML=`<div class="tlv-h">Over time · width = comments posted · color = narrative</div>
       ${tl.arc?`<div class="tlv-arc">${E(tl.arc)}</div>`:''}<div class="tlv-c"><svg></svg><div class="tlv-tip"></div></div>`;
     const box=view.querySelector('.tlv-c'),W=box.clientWidth,H=box.clientHeight; if(W<100||H<120) return;
-    const L=8,R=8,top=46,bot=26,iw=W-L-R,ih=H-top-bot;
+    const L=8,R=8,bot=26,iw=W-L-R;
     const NB=Math.min(160,Math.max(36,Math.round(iw/9)));
     const b=bins(tp,NB),{t0,t1,span,K,sm}=b;
+    const fmtD=t=>new Date(t*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'});
+    const yr=new Date(t1*1000).getUTCFullYear(),xt=t=>L+Math.min(1,Math.max(0,(t-t0)/span))*iw;
+    // phase labels: full names, never truncated. Labels that would collide stack into extra rows above the chart.
+    const phs=(tl.phases||[]).map(p=>({p,a:parseWhen(p.from,yr),z:parseWhen(p.to,yr)})).filter(o=>o.a!=null);
+    const cs=getComputedStyle(document.documentElement),mc=document.createElement('canvas').getContext('2d');
+    const meas=(t,f)=>{mc.font=f;return mc.measureText(t).width};
+    const FN='600 13px '+(cs.getPropertyValue('--serif')||'serif'),FD='10.5px '+(cs.getPropertyValue('--sans')||'sans-serif');
+    const LANE=36,lanes=[];
+    phs.forEach((o,i)=>{
+      o.x0=xt(o.a);o.x1=o.z!=null?xt(o.z):(phs[i+1]?xt(phs[i+1].a):L+iw);
+      o.name=(i+1)+'. '+String(o.p.name||'');o.date=fmtD(o.a)+(o.z!=null?' – '+fmtD(o.z):'');
+      o.w=Math.max(meas(o.name,FN),meas(o.date,FD))+4;
+      o.lx=Math.max(L,Math.min(o.x0+7,L+iw-o.w));               // keep the label on screen
+      let j=lanes.findIndex(r=>o.lx>=r+14); if(j<0){j=lanes.length;lanes.push(0)}
+      lanes[j]=o.lx+o.w; o.lane=j;
+    });
+    const top=Math.max(46,12+lanes.length*LANE+12),ih=H-top-bot;
     const tot=sm.map(r=>r.reduce((a,c)=>a+c,0)),mx=Math.max(1,...tot);
     const X=i=>L+(i+.5)/NB*iw, Y=v=>top+ih/2+v/mx*ih/2*.96;
     const off=(typeof T!=='undefined'&&T.off)||'rgba(150,150,150,.45)';
@@ -159,7 +177,6 @@
       paths+=`<path class="lay" data-k="${isN?k:-1}" d="${d}" fill="${col}" fill-opacity="${isN?.88:.3}"></path>`;
       base=hi;
     });
-    const fmtD=t=>new Date(t*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'});
     const fmtDT=t=>new Date(t*1000).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'UTC'})+' UTC';
     // ticks on round UTC times: whole days, or 1/3/6/12-hour steps for short events
     let ax='';const maxT=Math.max(2,Math.floor(iw/110));
@@ -171,16 +188,15 @@
       const anc=x-L<30?'start':L+iw-x<30?'end':'middle';
       ax+=`<line x1="${x}" x2="${x}" y1="${H-bot}" y2="${H-bot+4}" stroke="var(--faint)"/><text class="ax" x="${x}" y="${H-6}" text-anchor="${anc}">${lab}</text>`}
     ax+=`<line x1="${L}" x2="${L+iw}" y1="${H-bot}" y2="${H-bot}" stroke="var(--line)"/>`;
-    const yr=new Date(t1*1000).getUTCFullYear(),xt=t=>L+Math.min(1,Math.max(0,(t-t0)/span))*iw;
-    // phases: soft alternating bands with a numbered name on top
-    let ph='';const phs=(tl.phases||[]).map(p=>({p,a:parseWhen(p.from,yr),z:parseWhen(p.to,yr)})).filter(o=>o.a!=null);
-    phs.forEach((o,i)=>{const x0=xt(o.a),x1=o.z!=null?xt(o.z):(phs[i+1]?xt(phs[i+1].a):L+iw),w=Math.max(0,x1-x0);
-      if(i%2===0) ph+=`<rect x="${x0}" y="${top-34}" width="${w}" height="${ih+34}" fill="currentColor" fill-opacity=".035"/>`;
-      ph+=`<line x1="${x0}" x2="${x0}" y1="${top-34}" y2="${H-bot}" stroke="currentColor" stroke-opacity=".16" stroke-dasharray="3 4"/>`;
-      const nm=String(o.p.name||''),max=Math.max(4,Math.floor((w-14)/7));
-      ph+=`<text class="phl" x="${x0+7}" y="${top-18}">${E((i+1)+'. '+(nm.length>max?nm.slice(0,max-1)+'…':nm))}<title>${E(nm)}</title></text>`;
-      if(w>110) ph+=`<text class="phd" x="${x0+7}" y="${top-4}">${E(fmtD(o.a))}${o.z!=null?' – '+E(fmtD(o.z)):''}</text>`;
+    // phases: soft alternating bands; each label sits in its row with a thin leader down to where the phase starts
+    let ph='',labs='';const bandTop=top-LANE+2;
+    phs.forEach((o,i)=>{const w=Math.max(0,o.x1-o.x0),ly=top-12-o.lane*LANE;  // ly = baseline of the date line
+      if(i%2===0) ph+=`<rect x="${o.x0}" y="${bandTop}" width="${w}" height="${H-bot-bandTop}" fill="currentColor" fill-opacity=".035"/>`;
+      ph+=`<line x1="${o.x0}" x2="${o.x0}" y1="${ly-24}" y2="${H-bot}" stroke="currentColor" stroke-opacity=".16" stroke-dasharray="3 4"/>`;
+      if(o.lx>o.x0+7.5) labs+=`<path d="M${o.x0},${ly-20}H${o.lx-3}" stroke="currentColor" stroke-opacity=".16" fill="none"/>`;
+      labs+=`<text class="phl" x="${o.lx}" y="${ly-15}">${E(o.name)}</text><text class="phd" x="${o.lx}" y="${ly}">${E(o.date)}</text>`;
     });
+    ph+=labs;
     let tps='';(tl.turning_points||[]).forEach((t2,i)=>{const a=parseWhen(t2.when,yr);if(a==null)return;const x=xt(a);
       tps+=`<g class="tp"><line x1="${x}" x2="${x}" y1="${top}" y2="${H-bot}" stroke="#d24a2c" stroke-width="1.5" stroke-opacity=".85"/>
         <circle cx="${x}" cy="${top}" r="5" fill="#d24a2c"/><circle cx="${x}" cy="${top}" r="9" fill="#d24a2c" fill-opacity=".18"/>

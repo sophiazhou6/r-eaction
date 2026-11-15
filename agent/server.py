@@ -49,7 +49,9 @@ def status(slug: str) -> dict:
     out = {"slug": slug, "query": j["q"], "step": step, "step_n": n, "steps": len(STEPS),
            "elapsed": int(time.time() - j["t"])}
     rc = j["p"].poll()
-    if rc is None:
+    if j.get("cancelled"):
+        out["state"] = "cancelled"
+    elif rc is None:
         out["state"] = "running"
     elif "Online:" in log and "skip " + slug not in log:
         out["state"] = "done"
@@ -60,6 +62,23 @@ def status(slug: str) -> dict:
         out["state"] = "failed"
         out["error"] = log.strip().splitlines()[-1][:200] if log.strip() else f"exit {rc}"
     return out
+
+
+def cancel(slug: str) -> dict:
+    """Stop a running search (the Cancel button on the site)."""
+    j = JOBS.get(slug)
+    if not j:
+        return {"state": "unknown", "slug": slug}
+    j["cancelled"] = True
+    p = j["p"]
+    if p.poll() is None:
+        p.terminate()
+        try:
+            p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            p.kill()
+    print(f"[live] cancelled '{j['q']}' -> {slug}")
+    return status(slug)
 
 
 def start(q: str) -> dict:
@@ -110,12 +129,15 @@ class H(BaseHTTPRequestHandler):
         self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        if urlparse(self.path).path != "/api/run":
+        path = urlparse(self.path).path
+        if path not in ("/api/run", "/api/cancel"):
             return self._send(404, {"error": "not found"})
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
         except Exception:
             body = {}
+        if path == "/api/cancel":
+            return self._send(200, cancel(str(body.get("slug", "")).strip()[:60]))
         self._send(200, start(str(body.get("q", "")).strip()[:120]))
 
     def log_message(self, *a):

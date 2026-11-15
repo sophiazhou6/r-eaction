@@ -1,6 +1,6 @@
-# Reddit Narrative Map
+# r/eaction 
 
-**Type in a news event. See the narratives Reddit is telling about it, which communities tell them, and how those communities connect.**
+**type in a news event. See the narratives Reddit is telling about it, which communities tell them, and how those communities connect.**
 
 HackPrinceton · Arlequin AI Track 2: Social Media Analysis (content + connectivity)
 

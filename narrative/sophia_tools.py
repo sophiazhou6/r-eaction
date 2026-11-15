@@ -504,12 +504,30 @@ def _js(p, q):
     return float(((p * np.log2(p / m)).sum() + (q * np.log2(q / m)).sum()) / 2)
 
 
-def _mds(D):
+def _classical_mds(D):
     n = len(D)
     J = np.eye(n) - 1 / n
     vals, vecs = np.linalg.eigh(-0.5 * J @ (D ** 2) @ J)
     idx = np.argsort(vals)[::-1][:2]
     return vecs[:, idx] * np.sqrt(np.clip(vals[idx], 0, None))
+
+
+def _mds(D):
+    """2D layout whose distances match D as closely as possible (metric MDS / SMACOF, started from
+    classical MDS). Classical MDS alone collapsed r/news and r/stocks (0.19 apart -> 0.015) on event 5."""
+    X0 = _classical_mds(D)
+    if len(D) < 3:
+        return X0
+    try:
+        from sklearn.manifold import MDS
+        try:
+            m = MDS(n_components=2, metric="precomputed", n_init=1, init="classical_mds", random_state=0)
+            return m.fit_transform(D)
+        except TypeError:   # older sklearn API
+            m = MDS(n_components=2, dissimilarity="precomputed", n_init=1, random_state=0)
+            return m.fit_transform(D, init=X0)
+    except Exception:
+        return X0
 
 
 def _unit_tables(d: pd.DataFrame, unit: str, units: list, col: str, narrs: list):

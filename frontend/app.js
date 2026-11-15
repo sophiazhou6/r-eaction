@@ -501,7 +501,7 @@ async function route(){
   setModel(tp.model);
   window.renderStream&&renderStream(tp);
   missing.classList.remove('on');
-  document.getElementById('question').textContent=AXIS.question;
+  {const qq=document.getElementById('question');qq.textContent=AXIS.question;qq.title=AXIS.question}
   document.getElementById('modeSeg').style.visibility='';
   renderAll(); lastAspect=0;
   requestAnimationFrame(()=>{resize();adaptAspect();fit(true)});

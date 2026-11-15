@@ -5,3 +5,4 @@ workspace/
 __pycache__/
 .venv/
 workspace_run_output.txt
+compare_output.txt

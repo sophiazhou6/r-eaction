@@ -3,3 +3,5 @@ workspace/
 *.npy
 .env
 __pycache__/
+.venv/
+workspace_run_output.txt

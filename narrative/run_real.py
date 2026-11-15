@@ -27,6 +27,14 @@ COLS = ["comment_id", "post_id", "subreddit", "author_hash", "body", "score", "d
         "created_utc", "parent_id", "parent_type", "parent_body", "parent_author_hash", "embedding"]
 
 
+def client():
+    import os
+    from dotenv import load_dotenv
+    from supabase import create_client
+    load_dotenv(ROOT / ".env")
+    return create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SECRET_KEY"])
+
+
 def from_supabase(event_id):
     # own client (works on the Mac's default Python 3.9, where scrapetools/config.py can't import)
     import os
@@ -72,6 +80,8 @@ ap.add_argument("--question", default="Did Jensen Huang do something wrong?")
 ap.add_argument("--pole0", default="condemns him")
 ap.add_argument("--pole1", default="defends him")
 ap.add_argument("--k", type=int, help="force k clusters instead of HDBSCAN")
+ap.add_argument("--cleanup", action="store_true",
+                help="after saving outputs to Supabase narrative_runs, DELETE this event's raw comments")
 a = ap.parse_args()
 
 event_id, rows = from_csv(a.csv) if a.csv else from_supabase(a.event_id)
@@ -104,3 +114,8 @@ st.set_narratives([{"cluster": c["cluster"], "label": " / ".join(c["keywords"][:
                     "merge_into": None} for c in out["clusters"]])
 print("\n", json.dumps(st.build_connectivity(min_comments=20), indent=1))
 print(f"\noutputs in {path.parent}")
+
+if a.cleanup:
+    if event_id is None:
+        sys.exit("--cleanup needs a Supabase event (not --csv)")
+    print("\ncleanup:", json.dumps(st.archive_and_cleanup(event_id, sb=client()), indent=1))

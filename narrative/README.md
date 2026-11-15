@@ -15,6 +15,17 @@ agent = create_deep_agent(
 )
 ```
 Order: `search-strategist` → `clustering-analyst` → `narrative-analyst` → reporter / UI.
+
+After the agent finishes, save the outputs and drop the raw comments (plain Python, not an agent tool):
+```python
+event_id = tools.start_event(user_query)
+agent.invoke({"messages": [{"role": "user", "content": user_query}]})
+from narrative.sophia_tools import archive_and_cleanup
+print(archive_and_cleanup(event_id))   # saves to narrative_runs, then deletes this event's comments
+```
+One-time setup: run `narrative/schema_narrative_runs.sql` in the Supabase SQL editor. The UI then reads
+the latest `narrative_runs` row for an event (`clusters` + `connectivity` columns) instead of `comments`.
+If saving fails, nothing is deleted.
 Tools take agent paths (`/data/...`) and map them to `config.WORKSPACE/data/...` on disk.
 
 ## The two agents

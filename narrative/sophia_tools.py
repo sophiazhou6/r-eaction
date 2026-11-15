@@ -662,3 +662,51 @@ def subagent_specs():
              "   most-contested comments show a real disagreement."),
          "tools": [t["set_narratives_tool"], t["connectivity_tool"], t["set_group_labels_tool"]]},
     ]
+
+
+# ================================================================ archive + cleanup (NOT an agent tool)
+def archive_and_cleanup(event_id: int, path: str = DEFAULT_COMMENTS, delete_comments: bool = True,
+                        sb=None) -> dict:
+    """Run AFTER the agents finish. Destructive, so it is plain Python, never an LLM-callable tool.
+
+    1. Checks clusters.json + connectivity.json exist and cover the comments.
+    2. Saves both into Supabase `narrative_runs` (one row per run) so the UI no longer needs `comments`.
+       clusters.json already carries every comment's body/score/etc. for the click-through.
+    3. Deletes this event's rows from `comments` (incl. embeddings) and marks its posts
+       comments_fetched=false in every event that shares them. `posts`/`events` are kept (small).
+    Refuses to delete if step 1 or 2 fails."""
+    cdir = _resolve(path).parent
+    cfile, kfile = cdir / "clusters.json", cdir / "connectivity.json"
+    if not (cfile.exists() and kfile.exists()):
+        return {"ok": False, "reason": "outputs missing; run cluster_narratives + build_connectivity first"}
+    clusters, conn = json.loads(cfile.read_text()), json.loads(kfile.read_text())
+    n_out = len(clusters.get("comments", []))
+    if n_out == 0 or "narratives" not in clusters:
+        return {"ok": False, "reason": "clusters.json has no comments or no narrative labels yet"}
+
+    if sb is None:
+        if _config is None:
+            return {"ok": False, "reason": "no Supabase client (scrapetools/config.py not importable)"}
+        sb = _config.supabase()
+
+    # 2. archive (must succeed before anything is deleted)
+    try:
+        run = sb.table("narrative_runs").insert({"event_id": event_id, "n_comments": n_out,
+                                                 "clusters": clusters, "connectivity": conn}).execute().data
+        run_id = run[0]["run_id"] if run else None
+    except Exception as e:
+        return {"ok": False, "reason": f"could not save to narrative_runs ({e}); nothing deleted. "
+                                       "Run narrative/schema_narrative_runs.sql once in the SQL editor."}
+    if not delete_comments:
+        return {"ok": True, "run_id": run_id, "deleted": 0}
+
+    # 3. delete this event's comments
+    pids = [r["post_id"] for r in sb.table("event_posts").select("post_id")
+            .eq("event_id", event_id).eq("comments_fetched", True).execute().data]
+    deleted = 0
+    for i in range(0, len(pids), 20):
+        res = sb.table("comments").delete(count="exact").in_("post_id", pids[i:i + 20]).execute()
+        deleted += res.count or 0
+        sb.table("event_posts").update({"comments_fetched": False}).in_("post_id", pids[i:i + 20]).execute()
+    return {"ok": True, "run_id": run_id, "archived_comments": n_out, "deleted_comments": deleted,
+            "posts_cleared": len(pids)}

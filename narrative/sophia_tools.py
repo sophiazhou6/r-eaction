@@ -31,6 +31,8 @@ import pandas as pd
 BOTS = {"AutoModerator", "[deleted]", "VisualMod", "RemindMeBot", None, ""}
 MIN_WORDS = 5
 THREAD_CAP = 0.20          # max share of a (community, narrative) cell from one thread
+AXIS_MIN_ON_AXIS = 0.40    # a cluster "has the axis" if > 40% of its comments take a stance on it
+AXIS_MIN_CLUSTERS = 0.40   # the axis is good if > 40% of clusters have it
 CHAT_MODEL = os.environ.get("CLAIM_MODEL", "gpt-4.1-mini")   # same family as Kent's JUDGE_MODEL
 EMBED_BACKEND = os.environ.get("EMBED_BACKEND", "auto")   # auto | supabase | openai | local | tfidf
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "text-embedding-3-small")
@@ -144,8 +146,12 @@ Return a JSON object {{"items": [...]}} with one item per comment, in the same o
   "stance": number from 0 to 1 on the question above (0.5 = takes a position but mixed);
             null if the comment does not address the question (jokes, side topics, questions)
   "emotion": one word (anger, excitement, fear, humor, skepticism, sympathy, neutral, ...)
-  "claim": one neutral sentence stating the commenter's own position, no slang. If the comment
-           only agrees with its parent ("this", "exactly"), restate the parent's claim.
+  "claim": one neutral sentence stating what the comment itself says or argues, as a plain statement
+           (e.g. "The director's stock sale was pre-scheduled and legal."). Write the claim for EVERY comment,
+           including jokes and off-topic ones (e.g. "Joke that a fourth mistress leaked the affair.").
+           NEVER mention the stance question, whether the comment addresses it, or the words "the commenter"
+           / "this comment". If the comment only agrees with its parent ("this", "exactly"), restate the
+           parent's claim.
   "endorse_only": true if it adds nothing beyond agreeing with the parent
 
 Comments:
@@ -198,6 +204,7 @@ def score_stance(path: str, axis: dict, batch_size: int = 25, concurrency: int =
     out = df.drop(columns=drop).merge(res, on="id", how="left")
     out["stance"] = pd.to_numeric(out["stance"], errors="coerce").clip(0, 1)
     out["claim"] = out["claim"].fillna(out["body"].map(lambda t: _short(t, 400)))
+    out["claim"] = [_clean_claim(c, b) for c, b in zip(out["claim"], out["body"])]
     out["endorse_only"] = out["endorse_only"].fillna(False).astype(bool)
     out["emotion"] = out["emotion"].fillna("unknown")
     # write back the ORIGINAL columns (Kent's format, untouched values) + the 4 new ones
@@ -214,6 +221,22 @@ def score_stance(path: str, axis: dict, batch_size: int = 25, concurrency: int =
             "n_on_axis": int(out["stance"].notna().sum()),
             "avg_stance_by_subreddit": {s: (None if pd.isna(r["mean"]) else round(float(r["mean"]), 2))
                                         for s, r in by_sub.head(15).iterrows()}}
+
+
+_BOILER = re.compile(r"^(the |this )?(commenter|comment|user|author|poster)\s+(\w+\s+){0,2}?"
+                     r"(that|states|claims|believes|asserts|argues|says|suggests|questions|thinks|discusses|mentions|notes|"
+                     r"expresses|points out|wonders|asks|jokes|criticizes|implies|speculates)\s*(that\s+|about\s+)?",
+                     re.I)
+_AXIS_LEAK = re.compile(r"\b(does not|doesn't|without) (directly )?address(ing)?\b.*$", re.I)
+
+
+def _clean_claim(c, body=""):
+    c = str(c or "").strip()
+    c = _BOILER.sub("", c)
+    c = _AXIS_LEAK.sub("", c).strip(" ,;.")
+    if len(c.split()) < 3 or c.lower() in ("this comment", "the comment", "the commenter"):
+        return _short(body, 300)            # nothing left: fall back to the raw comment
+    return c[:1].upper() + c[1:] + "."
 
 
 # ================================================================ weights
@@ -290,7 +313,10 @@ def _embed(texts, cache: Path, ids: list[str] | None = None, claims_rewritten: b
 def _keywords(texts: pd.Series, labels: np.ndarray, k=8) -> dict:
     from sklearn.feature_extraction.text import CountVectorizer
     docs = texts.groupby(labels).apply(" ".join)
-    cv = CountVectorizer(stop_words="english", ngram_range=(1, 2))
+    from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+    stop = list(ENGLISH_STOP_WORDS | {"commenter", "comment", "comments", "address", "addresses", "does",
+                                      "jensen", "huang", "suggests", "states", "claims", "believes", "argues"})
+    cv = CountVectorizer(stop_words=stop, ngram_range=(1, 2))
     X = cv.fit_transform(docs).toarray().astype(float)
     tf = X / X.sum(1, keepdims=True).clip(1)
     idf = np.log(1 + X.sum(1).mean() / X.sum(0).clip(1))
@@ -327,8 +353,14 @@ def cluster_narratives(path: str = DEFAULT_COMMENTS, k: int | None = None, seed:
     n = len(work)
     cpath = _clusters_path(path)
     rewritten = bool((work["claim"] != work["body"].map(lambda t: _short(t, 400))).mean() > 0.5)
-    E, backend = _embed(work["claim"].tolist(), cpath.with_suffix(".emb.npy"),
+    inline = work["embedding"] if "embedding" in work else None
+    if inline is not None and not rewritten and inline.notna().all():
+        E = np.array([json.loads(v) if isinstance(v, str) else v for v in inline], dtype=np.float32)
+        backend = "inline-stored (all-MiniLM-L6-v2, raw body)"
+    else:
+      E, backend = _embed(work["claim"].tolist(), cpath.with_suffix(".emb.npy"),
                         ids=work["id"].tolist(), claims_rewritten=rewritten)
+    work = work.drop(columns=["embedding"], errors="ignore")
 
     zcache = cpath.with_suffix(".umap8.npy")
     if zcache.exists() and len(np.load(zcache)) == n:
@@ -375,6 +407,7 @@ def cluster_narratives(path: str = DEFAULT_COMMENTS, k: int | None = None, seed:
             "subreddit_counts": g["subreddit"].value_counts().head(8).to_dict(),
             "keywords": kw[int(c)],
             "mean_stance": None if g["stance"].isna().all() else round(float(g["stance"].mean()), 2),
+            "on_axis_share": round(float(g["stance"].notna().mean()), 2),
             "n_threads": int(g["thread"].nunique()),
             "localized": bool(work["thread"].nunique() >= 4 and (top_thread > 0.5 or g["thread"].nunique() < 3)),
             "top_comments": [{"id": r.id, "subreddit": r.subreddit, "score": int(r.score), "text": _short(r.body)}
@@ -383,16 +416,34 @@ def cluster_narratives(path: str = DEFAULT_COMMENTS, k: int | None = None, seed:
                                for r in contested.itertuples()],
         })
 
+    axis_check = check_axis(summaries)
     cols = ["id", "post_id", "parent_id", "subreddit", "author", "body", "claim", "score", "weight",
             "n_replies", "controversy", "stance", "emotion", "cluster", "is_noise", "x", "y", "created_utc"]
     out = {"params": {**chosen, "embed_backend": backend, "n_clustered": n,
                       "n_endorse_folded": int(df["endorse_only"].sum())},
-           "sweep": sweep,
+           "sweep": sweep, "axis_check": axis_check,
            "clusters": [{k2: v for k2, v in s.items() if k2 not in ("top_comments", "most_contested")} for s in summaries],
            "comments": json.loads(work[[c for c in cols if c in work]].to_json(orient="records"))}
     cpath.write_text(json.dumps(out))
     np.save(cpath.with_suffix(".final8.npy"), Z)
-    return {"path": str(cpath), **out["params"], "sweep": sweep, "clusters": summaries}
+    return {"path": str(cpath), **out["params"], "sweep": sweep, "axis_check": axis_check, "clusters": summaries}
+
+
+def check_axis(cluster_summaries: list[dict], min_on_axis: float = AXIS_MIN_ON_AXIS,
+               min_clusters: float = AXIS_MIN_CLUSTERS) -> dict:
+    """Is the stance axis about what people actually argue? OK when more than `min_clusters` of the
+    clusters have more than `min_on_axis` of their comments taking a stance (stance not null)."""
+    shares = [c.get("on_axis_share", 0) or 0 for c in cluster_summaries]
+    if not shares or max(shares) == 0:
+        return {"ok": None, "reason": "no stance scores yet (fast mode or score_stance not run)"}
+    with_axis = [c["cluster"] for c, sh in zip(cluster_summaries, shares) if sh > min_on_axis]
+    frac = len(with_axis) / len(shares)
+    ok = frac > min_clusters
+    return {"ok": ok, "clusters_with_axis": with_axis, "fraction": round(frac, 2),
+            "rule": f"> {int(min_clusters * 100)}% of clusters need > {int(min_on_axis * 100)}% of comments on the axis",
+            "advice": None if ok else ("The axis misses most narratives. Look at the off-axis clusters' top comments, "
+                                       "write a new axis they take sides on, call score_stance_tool again, then "
+                                       "cluster_narratives_tool again. Do this at most once.")}
 
 
 # ================================================================ extras: labels + connectivity
@@ -640,6 +691,8 @@ def subagent_specs():
              "   not generic positive/negative. Call score_stance_tool once.\n"
              "3. Call cluster_narratives_tool with k empty. Only rerun with k if the result is clearly unusable\n"
              "   (fewer than 3 or more than 15 clusters). At most one rerun.\n"
+             "   If axis_check.ok is false (40% rule), follow its advice: write ONE new axis from the off-axis\n"
+             "   clusters' comments, call score_stance_tool and cluster_narratives_tool again. Only once.\n"
              "4. Report briefly: axis, n_on_axis, number of clusters, which are localized. Do not label clusters."),
          "tools": [t["community_summary_tool"], t["preview_comments_tool"], t["score_stance_tool"], t["cluster_narratives_tool"]]},
         {"name": "narrative-analyst",
@@ -656,3 +709,51 @@ def subagent_specs():
              "   most-contested comments show a real disagreement."),
          "tools": [t["set_narratives_tool"], t["connectivity_tool"], t["set_group_labels_tool"]]},
     ]
+
+
+# ================================================================ archive + cleanup (NOT an agent tool)
+def archive_and_cleanup(event_id: int, path: str = DEFAULT_COMMENTS, delete_comments: bool = True,
+                        sb=None) -> dict:
+    """Run AFTER the agents finish. Destructive, so it is plain Python, never an LLM-callable tool.
+
+    1. Checks clusters.json + connectivity.json exist and cover the comments.
+    2. Saves both into Supabase `narrative_runs` (one row per run) so the UI no longer needs `comments`.
+       clusters.json already carries every comment's body/score/etc. for the click-through.
+    3. Deletes this event's rows from `comments` (incl. embeddings) and marks its posts
+       comments_fetched=false in every event that shares them. `posts`/`events` are kept (small).
+    Refuses to delete if step 1 or 2 fails."""
+    cdir = _resolve(path).parent
+    cfile, kfile = cdir / "clusters.json", cdir / "connectivity.json"
+    if not (cfile.exists() and kfile.exists()):
+        return {"ok": False, "reason": "outputs missing; run cluster_narratives + build_connectivity first"}
+    clusters, conn = json.loads(cfile.read_text()), json.loads(kfile.read_text())
+    n_out = len(clusters.get("comments", []))
+    if n_out == 0 or "narratives" not in clusters:
+        return {"ok": False, "reason": "clusters.json has no comments or no narrative labels yet"}
+
+    if sb is None:
+        if _config is None:
+            return {"ok": False, "reason": "no Supabase client (scrapetools/config.py not importable)"}
+        sb = _config.supabase()
+
+    # 2. archive (must succeed before anything is deleted)
+    try:
+        run = sb.table("narrative_runs").insert({"event_id": event_id, "n_comments": n_out,
+                                                 "clusters": clusters, "connectivity": conn}).execute().data
+        run_id = run[0]["run_id"] if run else None
+    except Exception as e:
+        return {"ok": False, "reason": f"could not save to narrative_runs ({e}); nothing deleted. "
+                                       "Run narrative/schema_narrative_runs.sql once in the SQL editor."}
+    if not delete_comments:
+        return {"ok": True, "run_id": run_id, "deleted": 0}
+
+    # 3. delete this event's comments
+    pids = [r["post_id"] for r in sb.table("event_posts").select("post_id")
+            .eq("event_id", event_id).eq("comments_fetched", True).execute().data]
+    deleted = 0
+    for i in range(0, len(pids), 20):
+        res = sb.table("comments").delete(count="exact").in_("post_id", pids[i:i + 20]).execute()
+        deleted += res.count or 0
+        sb.table("event_posts").update({"comments_fetched": False}).in_("post_id", pids[i:i + 20]).execute()
+    return {"ok": True, "run_id": run_id, "archived_comments": n_out, "deleted_comments": deleted,
+            "posts_cleared": len(pids)}

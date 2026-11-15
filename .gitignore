@@ -4,7 +4,9 @@ workspace/
 .env
 __pycache__/
 .env.*
+!.env.example
 data/
 .venv/
 *.pyc
 .DS_Store
+workspace_run_output.txt

@@ -11,7 +11,7 @@
 ```bash
 python run_manual.py "jensen huang" --queries "Jensen Huang" "Nvidia CEO" --max-posts 3 --no-judge
 python run_manual.py "jensen huang" --queries "Jensen Huang" "Nvidia CEO" --max-posts 5   # with LLM judge
-python run_manual.py "jensen huang scandal" --auto --max-posts 5   # LLM plans queries + subreddits
+python run_manual.py "jensen huang scandal" --auto   # LLM plans; 3 queries x 8 subs, 10 threads, 5000 comments each
 ```
 
 ## For Poshitha (orchestrator)
@@ -26,7 +26,7 @@ search_strategist = {
     "description": "Turns the event into Reddit queries, scores them by recall@k, "
                    "loops until coverage is good, then fetches the threads.",
     "system_prompt": "...",   # loop: search_reddit x5-8 -> score_recall -> if low recall, new queries -> fetch_threads
-    "tools": [tools.plan_queries, tools.search_reddit,
+    "tools": [tools.plan_queries, tools.search_many, tools.search_reddit,
               tools.score_recall, tools.fetch_threads],
 }
 
@@ -48,9 +48,10 @@ embed_pending(event_id=event_id)              # or give it to an agent as a tool
 | `start_event(q)` (Python, not a tool) | `events` row, resets `/data/` | event_id |
 | `plan_queries(prompt)` | `events.description`, plan in `/data/queries.json` | description, title-style queries, subreddits, time window |
 | `set_event_description(d)` | `events.description` | "saved" |
+| `search_many(queries, subreddits, limit, time_filter)` | same as search_reddit, for every query x subreddit, 3 in parallel | count per search, unique posts |
 | `search_reddit(query, limit, time_filter, subreddit)` | `posts`, `search_queries`, `query_hits`, `event_posts`, `/data/queries.json` | one line per post |
 | `score_recall(k)` | `event_posts.agent_relevant` | recall@k + precision@k per query, relevant post_ids |
-| `fetch_threads(post_ids)` | `comments` (with `parent_body`), `/data/comments.jsonl` | comment count per post |
+| `fetch_threads(post_ids, max_comments_per_post=5000)` | `comments` (with `parent_body`), `/data/comments.jsonl` | totals per subreddit (3 threads in parallel) |
 | `embed.py` / `embed_pending()` | `comments.embedding` (384-dim) | count |
 
 recall@k uses pooled relevance: the relevant set is every post the LLM judged relevant across
@@ -64,3 +65,7 @@ rows = sb.table("comments").select("comment_id,subreddit,body,parent_body,score,
 edges = sb.table("reply_edges").select("*").execute().data  # who replied to whom
 ```
 The frontend should use the **publishable** key (read-only via the policies in schema.sql).
+
+## Speed knobs (env vars)
+- `ARCTIC_WORKERS` (default 3): archive requests in flight at once. Above 4 = more timeouts.
+- `ARCTIC_DELAY` (default 1.5): seconds between request starts, across all workers.

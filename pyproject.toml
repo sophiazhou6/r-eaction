@@ -1,0 +1,25 @@
+[project]
+name = "hackprinceton-social-media"
+version = "0.1.0"
+description = "Reddit Narrative Agent: deep agent that maps how communities narrate a news event"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # orchestrator (Poshitha)
+    "deepagents>=0.7.38",
+    "langchain-anthropic>=1.7.10",
+    "langchain-openai",
+    "langchain-core",
+    "python-dotenv>=1.2.4",
+    # scrapetools (Kent)
+    "openai",
+    "supabase>=2",
+    "requests",
+    "praw",
+    "sentence-transformers",
+    # narrative (Sophia)
+    "numpy",
+    "pandas",
+    "scikit-learn>=1.3",
+    "umap-learn",
+]

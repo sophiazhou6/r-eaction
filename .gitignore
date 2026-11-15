@@ -3,3 +3,8 @@ workspace/
 *.npy
 .env
 __pycache__/
+.env.*
+data/
+.venv/
+*.pyc
+.DS_Store

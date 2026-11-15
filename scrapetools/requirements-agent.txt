@@ -1,0 +1,5 @@
+# Orchestrator (deep agent). Needs Python 3.11+.
+-r requirements.txt
+deepagents>=0.7
+langchain
+langchain-openai

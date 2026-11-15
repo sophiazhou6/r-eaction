@@ -31,6 +31,8 @@ import pandas as pd
 BOTS = {"AutoModerator", "[deleted]", "VisualMod", "RemindMeBot", None, ""}
 MIN_WORDS = 5
 THREAD_CAP = 0.20          # max share of a (community, narrative) cell from one thread
+MAX_CLUSTERS = 12         # more than this after the sweep -> merge closest clusters
+MERGE_TO = 10
 AXIS_MIN_ON_AXIS = 0.40    # a cluster "has the axis" if > 40% of its comments take a stance on it
 AXIS_MIN_CLUSTERS = 0.40   # the axis is good if > 40% of clusters have it
 CHAT_MODEL = os.environ.get("CLAIM_MODEL", "gpt-4.1-mini")
@@ -390,13 +392,21 @@ def cluster_narratives(path: str = DEFAULT_COMMENTS, k: int | None = None, seed:
         chosen = {"method": "agglomerative", "k": int(k)}
     else:
         best = None
-        for m in sorted({max(10, n // d) for d in (80, 40, 20, 10)}):
+        for m in sorted({max(10, n // d) for d in (80, 65, 55, 48, 42, 36, 30, 20, 10)}):
             lab = HDBSCAN(min_cluster_size=m, min_samples=max(3, m // 3)).fit_predict(Z)
             score, info = _score_option(lab, n)
             sweep.append({"min_cluster_size": m, "score": score, **info})
             if best is None or score > best[0]:
                 best = (score, m, lab)
         labels, chosen = best[2], {"method": "hdbscan", "min_cluster_size": best[1]}
+        ids = sorted(c for c in set(labels) if c >= 0)
+        if len(ids) > MAX_CLUSTERS:
+            # too fine: merge the closest clusters (by centroid, cosine) down to MERGE_TO; noise stays noise
+            C = np.stack([Z[labels == c].mean(0) for c in ids])
+            grp = AgglomerativeClustering(n_clusters=MERGE_TO, metric="cosine", linkage="average").fit_predict(C)
+            remap = dict(zip(ids, grp))
+            labels = np.array([remap[c] if c >= 0 else -1 for c in labels])
+            chosen.update({"merged_from": len(ids), "merged_to": MERGE_TO})
 
     work["is_noise"] = labels == -1
     if (labels == -1).any() and (labels >= 0).any():          # attach noise to nearest cluster, keep flag

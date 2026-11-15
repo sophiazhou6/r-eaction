@@ -146,8 +146,12 @@ Return a JSON object {{"items": [...]}} with one item per comment, in the same o
   "stance": number from 0 to 1 on the question above (0.5 = takes a position but mixed);
             null if the comment does not address the question (jokes, side topics, questions)
   "emotion": one word (anger, excitement, fear, humor, skepticism, sympathy, neutral, ...)
-  "claim": one neutral sentence stating the commenter's own position, no slang. If the comment
-           only agrees with its parent ("this", "exactly"), restate the parent's claim.
+  "claim": one neutral sentence stating what the comment itself says or argues, as a plain statement
+           (e.g. "The director's stock sale was pre-scheduled and legal."). Write the claim for EVERY comment,
+           including jokes and off-topic ones (e.g. "Joke that a fourth mistress leaked the affair.").
+           NEVER mention the stance question, whether the comment addresses it, or the words "the commenter"
+           / "this comment". If the comment only agrees with its parent ("this", "exactly"), restate the
+           parent's claim.
   "endorse_only": true if it adds nothing beyond agreeing with the parent
 
 Comments:
@@ -199,7 +203,7 @@ def score_stance(path: str, axis: dict, batch_size: int = 25, concurrency: int =
     drop = [c for c in ["stance", "emotion", "claim", "endorse_only"] if c in df]
     out = df.drop(columns=drop).merge(res, on="id", how="left")
     out["stance"] = pd.to_numeric(out["stance"], errors="coerce").clip(0, 1)
-    out["claim"] = out["claim"].fillna(out["body"].map(lambda t: _short(t, 400)))
+    out["claim"] = out["claim"].fillna(out["body"].map(lambda t: _short(t, 400))).map(_clean_claim)
     out["endorse_only"] = out["endorse_only"].fillna(False).astype(bool)
     out["emotion"] = out["emotion"].fillna("unknown")
     # write back the ORIGINAL columns (Kent's format, untouched values) + the 4 new ones
@@ -216,6 +220,19 @@ def score_stance(path: str, axis: dict, batch_size: int = 25, concurrency: int =
             "n_on_axis": int(out["stance"].notna().sum()),
             "avg_stance_by_subreddit": {s: (None if pd.isna(r["mean"]) else round(float(r["mean"]), 2))
                                         for s, r in by_sub.head(15).iterrows()}}
+
+
+_BOILER = re.compile(r"^(the |this )?(commenter|comment|user|author|poster)\s+(\w+\s+){0,2}?"
+                     r"(that|states|claims|believes|asserts|argues|says|suggests|questions|thinks)\s*(that\s+)?",
+                     re.I)
+_AXIS_LEAK = re.compile(r"\b(does not|doesn't|without) (directly )?address(ing)?\b.*$", re.I)
+
+
+def _clean_claim(c):
+    c = str(c or "").strip()
+    c = _BOILER.sub("", c)
+    c = _AXIS_LEAK.sub("", c).strip(" ,;.") + "."
+    return c[:1].upper() + c[1:] if len(c) > 1 else c
 
 
 # ================================================================ weights
@@ -292,7 +309,10 @@ def _embed(texts, cache: Path, ids: list[str] | None = None, claims_rewritten: b
 def _keywords(texts: pd.Series, labels: np.ndarray, k=8) -> dict:
     from sklearn.feature_extraction.text import CountVectorizer
     docs = texts.groupby(labels).apply(" ".join)
-    cv = CountVectorizer(stop_words="english", ngram_range=(1, 2))
+    from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+    stop = list(ENGLISH_STOP_WORDS | {"commenter", "comment", "comments", "address", "addresses", "does",
+                                      "jensen", "huang", "suggests", "states", "claims", "believes", "argues"})
+    cv = CountVectorizer(stop_words=stop, ngram_range=(1, 2))
     X = cv.fit_transform(docs).toarray().astype(float)
     tf = X / X.sum(1, keepdims=True).clip(1)
     idf = np.log(1 + X.sum(1).mean() / X.sum(0).clip(1))

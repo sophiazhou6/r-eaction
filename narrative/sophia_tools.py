@@ -327,8 +327,14 @@ def cluster_narratives(path: str = DEFAULT_COMMENTS, k: int | None = None, seed:
     n = len(work)
     cpath = _clusters_path(path)
     rewritten = bool((work["claim"] != work["body"].map(lambda t: _short(t, 400))).mean() > 0.5)
-    E, backend = _embed(work["claim"].tolist(), cpath.with_suffix(".emb.npy"),
+    inline = work["embedding"] if "embedding" in work else None
+    if inline is not None and not rewritten and inline.notna().all():
+        E = np.array([json.loads(v) if isinstance(v, str) else v for v in inline], dtype=np.float32)
+        backend = "inline-stored (all-MiniLM-L6-v2, raw body)"
+    else:
+      E, backend = _embed(work["claim"].tolist(), cpath.with_suffix(".emb.npy"),
                         ids=work["id"].tolist(), claims_rewritten=rewritten)
+    work = work.drop(columns=["embedding"], errors="ignore")
 
     zcache = cpath.with_suffix(".umap8.npy")
     if zcache.exists() and len(np.load(zcache)) == n:

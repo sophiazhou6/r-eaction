@@ -33,7 +33,11 @@ MIN_WORDS = 5
 THREAD_CAP = 0.20          # max share of a (community, narrative) cell from one thread
 AXIS_MIN_ON_AXIS = 0.40    # a cluster "has the axis" if > 40% of its comments take a stance on it
 AXIS_MIN_CLUSTERS = 0.40   # the axis is good if > 40% of clusters have it
-CHAT_MODEL = os.environ.get("CLAIM_MODEL", "gpt-4.1-mini")   # same family as Kent's JUDGE_MODEL
+CHAT_MODEL = os.environ.get("CLAIM_MODEL", "gpt-4.1-mini")
+# Any OpenAI-compatible endpoint works for the claim/stance pass, e.g. free local Ollama:
+#   CLAIM_BASE_URL=http://localhost:11434/v1  CLAIM_API_KEY=ollama  CLAIM_MODEL=qwen2.5:7b
+CLAIM_BASE_URL = os.environ.get("CLAIM_BASE_URL")
+CLAIM_API_KEY = os.environ.get("CLAIM_API_KEY")   # same family as Kent's JUDGE_MODEL
 EMBED_BACKEND = os.environ.get("EMBED_BACKEND", "auto")   # auto | supabase | openai | local | tfidf
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "text-embedding-3-small")
 LOCAL_MODEL = os.environ.get("LOCAL_EMBED_MODEL", "all-MiniLM-L6-v2")
@@ -190,7 +194,12 @@ def score_stance(path: str, axis: dict, batch_size: int = 25, concurrency: int =
                             "endorse_only": df["n_words"] < MIN_WORDS})
     else:
         from openai import AsyncOpenAI
-        client, sem = AsyncOpenAI(), asyncio.Semaphore(concurrency)
+        kw = {"base_url": CLAIM_BASE_URL} if CLAIM_BASE_URL else {}
+        if CLAIM_API_KEY:
+            kw["api_key"] = CLAIM_API_KEY
+        if CLAIM_BASE_URL and "localhost" in CLAIM_BASE_URL:
+            concurrency = min(concurrency, 2)     # a laptop model can't take 20 parallel requests
+        client, sem = AsyncOpenAI(**kw), asyncio.Semaphore(concurrency)
         rows = df.to_dict("records")
         batches = [rows[i:i + batch_size] for i in range(0, len(rows), batch_size)]
 
@@ -360,7 +369,7 @@ def cluster_narratives(path: str = DEFAULT_COMMENTS, k: int | None = None, seed:
     cpath = _clusters_path(path)
     rewritten = bool((work["claim"] != work["body"].map(lambda t: _short(t, 400))).mean() > 0.5)
     inline = work["embedding"] if "embedding" in work else None
-    if inline is not None and not rewritten and inline.notna().all():
+    if inline is not None and (not rewritten or EMBED_BACKEND == "supabase") and inline.notna().all():
         E = np.array([json.loads(v) if isinstance(v, str) else v for v in inline], dtype=np.float32)
         backend = "inline-stored (all-MiniLM-L6-v2, raw body)"
     else:

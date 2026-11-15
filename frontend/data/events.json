@@ -1,0 +1,50 @@
+[
+  {
+    "slug": "jensen-huang",
+    "title": "Jensen Huang / Nvidia",
+    "query": "Jensen Huang scandal",
+    "keywords": [
+      "jensen",
+      "huang",
+      "nvidia",
+      "nvda"
+    ]
+  },
+  {
+    "slug": "anthropic-ipo",
+    "title": "Anthropic IPO",
+    "query": "Anthropic IPO",
+    "keywords": [
+      "anthropic"
+    ],
+    "sample": true
+  },
+  {
+    "slug": "faa-closure",
+    "title": "FAA closure",
+    "query": "FAA closure",
+    "keywords": [
+      "faa",
+      "federal aviation",
+      "air traffic",
+      "airspace"
+    ]
+  },
+  {
+    "slug": "fifa-election",
+    "title": "FIFA election",
+    "query": "new FIFA election",
+    "keywords": [
+      "fifa"
+    ]
+  },
+  {
+    "slug": "you-can-see-everything",
+    "title": "You Can See Everything",
+    "query": "You Can See Everything",
+    "keywords": [
+      "you can see everything",
+      "see everything"
+    ]
+  }
+]

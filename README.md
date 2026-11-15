@@ -1,12 +1,12 @@
 # r/eaction 
 
-**type in a news event. See the narratives Reddit is telling about it, which communities tell them, and how those communities connect.**
+**type in a news event. see the narratives Reddit is telling about it, which communities tell them, and how those communities connect.**
 
-HackPrinceton · Arlequin AI Track 2: Social Media Analysis (content + connectivity)
+hackprinceton · Arlequin AI Track 2: Social Media Analysis (content + connectivity)
 
 A LangChain deep agent searches Reddit for an event, pulls the comment threads, and turns thousands of
-comments into a handful of **narratives** (e.g. *"he was fired for the China chips, not the affairs"*),
-scores each comment's **stance** on the event's central question, and maps the **communities**: which
+comments into a handful of **narratives**,
+scores each comment's stance on the event's central question, and maps the **communities**: which
 subreddits tell the same story, which share commenters, and which narratives argue with each other.
 
 ## How it works
